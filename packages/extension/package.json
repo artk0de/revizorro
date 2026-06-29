@@ -1,0 +1,31 @@
+{
+  "name": "revizorro",
+  "displayName": "revizorro",
+  "description": "Local pre-merge AI code review loop",
+  "publisher": "revizorro",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./dist/extension.cjs",
+  "engines": { "vscode": "^1.90.0" },
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      { "command": "revizorro.toggleViewMode", "title": "revizorro: Toggle Diff View (split/inline)" },
+      { "command": "revizorro.approve", "title": "revizorro: Approve" },
+      { "command": "revizorro.decline", "title": "revizorro: Decline" }
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.cjs"
+  },
+  "dependencies": {
+    "@revizorro/protocol": "workspace:*",
+    "@revizorro/core": "workspace:*",
+    "@revizorro/core-adapters": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.21.5"
+  }
+}

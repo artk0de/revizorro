@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>revizorro review</title>
+    <style>
+      body { font-family: var(--vscode-font-family); padding: 0.5rem; }
+      .toolbar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+      button { cursor: pointer; }
+      .approve { color: var(--vscode-testing-iconPassed); }
+      .decline { color: var(--vscode-testing-iconFailed); }
+      ul { list-style: none; padding: 0; }
+      li { padding: 0.2rem 0; }
+      li.collapsed { opacity: 0.5; }
+      .round { font-size: 0.85em; opacity: 0.7; }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar">
+      <button class="approve" id="approve">✓ Approve</button>
+      <button class="decline" id="decline">✗ Decline</button>
+      <button id="toggle">⇆ Toggle view</button>
+      <span class="round" id="round"></span>
+    </div>
+    <ul id="files"></ul>
+    <script>
+      const vscode = acquireVsCodeApi();
+      document.getElementById("approve").onclick = () => vscode.postMessage({ type: "approve" });
+      document.getElementById("decline").onclick = () => vscode.postMessage({ type: "decline" });
+      document.getElementById("toggle").onclick = () => vscode.postMessage({ type: "toggleViewMode" });
+      window.addEventListener("message", (e) => {
+        const m = e.data;
+        if (m.type !== "state") return;
+        document.getElementById("round").textContent =
+          "round " + m.state.round + " · " + m.viewMode;
+        const ul = document.getElementById("files");
+        ul.innerHTML = "";
+        for (const [path, fv] of Object.entries(m.state.files)) {
+          const li = document.createElement("li");
+          if (fv.viewed) li.className = "collapsed";
+          li.textContent = (fv.viewed ? "▸ " : "▾ ") + path;
+          ul.appendChild(li);
+        }
+      });
+    </script>
+  </body>
+</html>
