@@ -1,0 +1,5 @@
+{
+  "name": "revizorro",
+  "version": "0.1.0",
+  "description": "Local pre-merge AI review loop — review the worktree diff in VS Code before merge"
+}
