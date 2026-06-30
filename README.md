@@ -32,6 +32,15 @@ first-class.
 - **Local & private.** Nothing leaves your machine — no third-party review
   service, no telemetry.
 
+## Screenshots
+
+<p align="center">
+  <a href="assets/screenshots/01-review.png">
+    <img src="assets/screenshots/01-review.png" width="32%" alt="Inline review — syntax-highlighted diff, GitLab-style threads, 3-action toolbar" />
+  </a>
+  <!-- More thumbnails go here (same width so they wrap into a row). -->
+</p>
+
 ## Architecture
 
 Two processes, one localhost channel:
