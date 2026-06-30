@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="revizorro" width="140" />
+</p>
+
 # revizorro
 
 Local, GitHub-PR-grade code review of the **worktree diff before merge** — driven
