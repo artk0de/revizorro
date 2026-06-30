@@ -31,4 +31,19 @@ describe("GitDiffProvider", () => {
     const files = await new GitDiffProvider(repo, "main").diff("wt");
     expect(files.map((f) => f.path)).toContain("b.ts");
   });
+  it("includes a unified patch with +/- lines for a tracked change", async () => {
+    writeFileSync(join(repo, "a.ts"), "export const a = 2;\n");
+    git(repo, "commit", "-aqm", "change a");
+    const files = await new GitDiffProvider(repo, "main").diff("wt");
+    const a = files.find((f) => f.path === "a.ts")!;
+    expect(a.patch).toContain("-export const a = 1;");
+    expect(a.patch).toContain("+export const a = 2;");
+    expect(a.binary).toBe(false);
+  });
+  it("includes new-file content as an added patch for an untracked file", async () => {
+    writeFileSync(join(repo, "b.ts"), "export const b = 3;\n");
+    const files = await new GitDiffProvider(repo, "main").diff("wt");
+    const b = files.find((f) => f.path === "b.ts")!;
+    expect(b.patch).toContain("+export const b = 3;");
+  });
 });

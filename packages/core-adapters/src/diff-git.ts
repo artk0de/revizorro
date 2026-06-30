@@ -21,14 +21,25 @@ export class GitDiffProvider implements DiffProvider {
     return stdout;
   }
 
+  /** Run git, returning stdout even when the command exits non-zero (e.g. `diff --no-index`). */
+  private async gitAllowFail(...args: string[]): Promise<string> {
+    try {
+      return await this.git(...args);
+    } catch (e) {
+      return (e as { stdout?: string }).stdout ?? "";
+    }
+  }
+
   async diff(_worktreeId: string): Promise<DiffFile[]> {
     const base = (await this.git("merge-base", this.baseRef, "HEAD")).trim();
     const committed = await this.git("diff", "--name-only", base, "HEAD");
     const uncommitted = await this.git("diff", "--name-only", "HEAD");
-    const untracked = await this.git("ls-files", "--others", "--exclude-standard");
+    const untrackedOut = await this.git("ls-files", "--others", "--exclude-standard");
+    const untracked = new Set(untrackedOut.split("\n").filter(Boolean));
     const paths = new Set(
-      [committed, uncommitted, untracked].flatMap((s) => s.split("\n")).filter(Boolean),
+      [committed, uncommitted, untrackedOut].flatMap((s) => s.split("\n")).filter(Boolean),
     );
+
     const files: DiffFile[] = [];
     for (const path of paths) {
       let contentHash = "";
@@ -38,7 +49,11 @@ export class GitDiffProvider implements DiffProvider {
       } catch {
         // deleted file → empty hash
       }
-      files.push({ path, contentHash });
+      const patch = untracked.has(path)
+        ? await this.gitAllowFail("diff", "--no-index", "--", "/dev/null", path)
+        : await this.gitAllowFail("diff", base, "--", path);
+      const binary = /Binary files|GIT binary patch/.test(patch);
+      files.push({ path, contentHash, patch, binary });
     }
     return files.sort((a, b) => a.path.localeCompare(b.path));
   }

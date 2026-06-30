@@ -3,6 +3,10 @@ import type { FileViewState } from "@revizorro/protocol";
 export interface DiffFile {
   path: string;
   contentHash: string;
+  /** Raw unified `git diff` body for the file (worktree vs merge-base). Transient — not persisted. */
+  patch?: string;
+  /** True when git reports the file as binary (no textual diff). */
+  binary?: boolean;
 }
 
 export function decideCollapsed(
