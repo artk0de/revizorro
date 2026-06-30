@@ -1,0 +1,11 @@
+{
+  "name": "revizorro",
+  "owner": { "name": "artk0de" },
+  "plugins": [
+    {
+      "name": "revizorro",
+      "source": "./plugin",
+      "description": "Local pre-merge AI code review loop — review the worktree diff in VS Code before merge"
+    }
+  ]
+}

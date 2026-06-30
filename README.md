@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="revizorro" width="140" />
+  <img src="assets/logo.png" alt="revizorro" width="300" />
 </p>
 
 # revizorro
@@ -35,19 +35,31 @@ Two processes, one localhost channel:
 
 ## Install
 
-Two artifacts, native channels:
+Three pieces — the Claude Code plugin (skill), the CLI, and the VS Code extension.
+
+**1. Claude Code plugin** (the `/revizorro` skill). Installed from this repo's
+marketplace — auto-updates when the marketplace is refreshed:
+
+```text
+/plugin marketplace add artk0de/revizorro
+/plugin install revizorro@revizorro
+```
+
+**2. CLI** — on PATH via npm global bin:
 
 ```bash
-# CLI — on PATH via npm global bin
 npm i -g @revizorro/cli
+```
 
-# Extension — from the VS Code Marketplace (or a local .vsix)
+**3. VS Code extension** — from the Marketplace (or a local `.vsix`):
+
+```bash
 code --install-extension revizorro.vsix
 ```
 
 Then, in a project open in VS Code with the extension active:
 
-```bash
+```text
 /revizorro     # in Claude Code — drives the review loop
 ```
 
