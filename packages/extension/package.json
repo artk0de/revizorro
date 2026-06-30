@@ -21,9 +21,9 @@
     "package": "vsce package --no-dependencies -o revizorro.vsix"
   },
   "dependencies": {
-    "@revizorro/protocol": "workspace:*",
-    "@revizorro/core": "workspace:*",
-    "@revizorro/core-adapters": "workspace:*"
+    "@revizorro/protocol": "*",
+    "@revizorro/core": "*",
+    "@revizorro/core-adapters": "*"
   },
   "devDependencies": {
     "@types/vscode": "^1.90.0",

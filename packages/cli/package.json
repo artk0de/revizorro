@@ -11,9 +11,9 @@
     "build": "tsc -p tsconfig.json && esbuild bin/revizorro.js --bundle --platform=node --format=cjs --outfile=dist/revizorro.cjs"
   },
   "dependencies": {
-    "@revizorro/protocol": "workspace:*",
-    "@revizorro/core": "workspace:*",
-    "@revizorro/core-adapters": "workspace:*"
+    "@revizorro/protocol": "*",
+    "@revizorro/core": "*",
+    "@revizorro/core-adapters": "*"
   },
   "devDependencies": { "esbuild": "^0.21.5" }
 }

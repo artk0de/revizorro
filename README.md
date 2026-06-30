@@ -49,10 +49,15 @@ Then, in a project open in VS Code with the extension active:
 
 ## Develop
 
+npm workspaces — same toolchain as a single-package repo:
+
 ```bash
-pnpm install
-pnpm -r build   # tsc + esbuild bundles (cli → dist/revizorro.cjs, extension → dist/extension.cjs)
-pnpm test       # vitest across protocol / core / adapters / cli
+npm install
+npm run build   # tsc + esbuild bundles (cli → dist/revizorro.cjs, extension → dist/extension.cjs)
+npm test        # vitest across protocol / core / adapters / cli
+
+# put `revizorro` on PATH (like tea-rags):
+cd packages/cli && npm link
 ```
 
 Extension runtime: open `packages/extension` and press F5 for the Extension
