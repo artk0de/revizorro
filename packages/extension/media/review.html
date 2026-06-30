@@ -28,15 +28,21 @@
         cursor: pointer;
         background: var(--vscode-button-secondaryBackground);
         color: var(--vscode-button-secondaryForeground);
-        border: none;
-        padding: 0.25rem 0.6rem;
-        border-radius: 3px;
+        border: 1px solid transparent;
+        padding: 0.35em 0.85em;
+        border-radius: 5px;
         font-family: var(--vscode-font-family);
-        font-size: 0.85em;
+        font-size: 0.9em;
+        line-height: 1.35;
+        transition: filter 0.1s ease;
       }
+      button:hover { filter: brightness(1.15); }
+      button:active { filter: brightness(0.95); }
       button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
       button.approve { background: var(--vscode-testing-iconPassed); color: #000; }
-      button.decline { background: var(--vscode-testing-iconFailed); color: #000; }
+      button.changes { background: var(--vscode-testing-iconFailed); color: #000; }
+      button.clarify { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+      .toploader { font-size: 0.82em; opacity: 0.9; font-style: italic; }
       .file {
         border: 1px solid var(--vscode-panel-border);
         border-radius: 4px;
@@ -67,6 +73,7 @@
         flex: none;
         text-align: center;
         opacity: 0.25;
+        user-select: none;
       }
       .ln .gut.cm { cursor: pointer; }
       .ln:hover .gut.cm { opacity: 0.95; }
@@ -90,16 +97,57 @@
       .ln.ctx .txt::before { content: " "; }
       .ln.hunk { background: var(--vscode-editorGroupHeader-tabsBackground); opacity: 0.7; padding-left: 0.5em; }
       /* split view */
-      .srow { display: flex; }
+      .srow { display: flex; align-items: stretch; }
       .srow .side {
-        flex: 1;
+        flex: 1 1 50%;
         display: flex;
         white-space: pre;
         border-left: 1px solid var(--vscode-panel-border);
         min-width: 0;
+        overflow-x: auto;
+        line-height: 1.5;
       }
-      .srow .side .no { width: 3em; text-align: right; padding: 0 0.4em; opacity: 0.4; flex: none; }
-      .srow .side .txt { flex: 1; padding: 0 0.4em; overflow: hidden; }
+      .srow .side .no {
+        width: 3em;
+        text-align: right;
+        padding: 0 0.4em;
+        opacity: 0.4;
+        flex: none;
+        user-select: none;
+        position: sticky;
+        left: 0;
+        background: inherit;
+      }
+      .srow .side .txt { padding: 0 0.4em; }
+      /* resizable split: --lw drives every row's left column for a draggable divider */
+      .diff.split { position: relative; --lw: 50%; overflow-x: hidden; }
+      .srow .side.add { position: relative; }
+      .sgut {
+        position: sticky;
+        right: 0;
+        opacity: 0;
+        cursor: pointer;
+        user-select: none;
+        padding: 0 0.3em;
+        background: inherit;
+      }
+      .srow:hover .sgut { opacity: 0.85; }
+      .diff.split .srow .side.del,
+      .diff.split .srow .side.empty:first-child { flex: 0 0 var(--lw); }
+      .diff.split .srow .side.add,
+      .diff.split .srow .side.empty:last-child { flex: 1 1 0; }
+      .split-divider {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: var(--lw);
+        width: 7px;
+        transform: translateX(-50%);
+        cursor: col-resize;
+        z-index: 6;
+      }
+      .split-divider:hover,
+      .split-divider.dragging { background: var(--vscode-focusBorder); opacity: 0.6; }
       .srow .side.del { background: rgba(220, 90, 90, 0.13); }
       .srow .side.add { background: rgba(80, 200, 120, 0.13); }
       .srow.hunk { background: var(--vscode-editorGroupHeader-tabsBackground); opacity: 0.7; padding-left: 0.5em; }
@@ -148,6 +196,17 @@
       .avatar.human { background: #1f75cb; }
       .msg-head .who { font-weight: 600; }
       .msg-body { white-space: pre-wrap; }
+      .msg-body .code-block {
+        margin: 0.35rem 0;
+        padding: 0.4rem 0.6rem;
+        background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.25));
+        border-radius: 4px;
+        font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+        font-size: 0.9em;
+        white-space: pre;
+        overflow-x: auto;
+      }
+      .msg-body .code-block code { white-space: pre; }
       .reply-box {
         display: flex;
         flex-wrap: wrap;
@@ -171,8 +230,28 @@
         resize: vertical;
         font-family: var(--vscode-font-family);
       }
+      .compose .snippet {
+        flex: 1 0 100%;
+        margin: 0 0 0.3rem;
+        padding: 0.3rem 0.5rem;
+        background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.2));
+        border-left: 2px solid var(--vscode-focusBorder);
+        font-family: var(--vscode-editor-font-family, monospace);
+        font-size: 0.85em;
+        white-space: pre-wrap;
+        overflow-x: auto;
+        opacity: 0.85;
+      }
       .binary { padding: 0.5rem 0.7rem; opacity: 0.6; }
       .empty { padding: 1rem; opacity: 0.6; }
+      .sel-bubble {
+        position: absolute;
+        z-index: 50;
+        font-size: 0.8em;
+        padding: 0.2rem 0.55rem;
+        white-space: nowrap;
+        box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
+      }
       /* hljs — VS Code Dark+ token palette */
       .hljs-keyword, .hljs-literal { color: #569cd6; }
       .hljs-built_in { color: #4ec9b0; }
@@ -224,10 +303,12 @@
   <body>
     <div class="toolbar">
       <span class="round" id="round"></span>
-      <button id="toggle">⇆ split/inline</button>
+      <span class="toploader" id="toploader"></span>
+      <button id="toggle" title="Toggle inline / side-by-side diff">⇆ split/inline</button>
       <span class="grow"></span>
-      <button class="approve" id="approve">✓ Approve</button>
-      <button class="decline" id="decline">✗ Decline</button>
+      <button class="approve" id="approve" title="Approve — the change passes the gate, ready to merge">✓ Approve</button>
+      <button class="changes" id="requestChanges" title="Request changes — the agent fixes every comment and re-submits a new round">✗ Request changes</button>
+      <button class="clarify" id="clarify" title="Clarify — the agent answers all open questions; the form stays open">? Clarify</button>
     </div>
     <div id="files"><div class="empty">waiting for review session…</div></div>
     <script>

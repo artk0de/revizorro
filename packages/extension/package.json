@@ -28,8 +28,12 @@
         "title": "revizorro: Approve"
       },
       {
-        "command": "revizorro.decline",
-        "title": "revizorro: Decline"
+        "command": "revizorro.requestChanges",
+        "title": "revizorro: Request changes"
+      },
+      {
+        "command": "revizorro.clarify",
+        "title": "revizorro: Clarify"
       }
     ]
   },

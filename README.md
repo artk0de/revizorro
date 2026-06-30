@@ -12,6 +12,26 @@ line-anchored comments and approve/decline; the agent applies fixes and
 re-submits until you approve. Realtime mid-review dialogue with the agent is
 first-class.
 
+## Key features
+
+- **Stay in flow — no PR/MR.** Review the worktree diff locally, *before* you
+  merge. No pushing to GitHub / GitLab / Bitbucket, no pull-request round-trip —
+  the whole gate happens on your machine, in your editor.
+- **A continuous loop with the agent.** Not a one-shot report: leave inline
+  comments, **Ask agent** for an immediate answer, and on decline the agent fixes
+  everything and writes back what it did — you resolve and re-review without ever
+  leaving VS Code.
+- **Harness-agnostic by design.** The loop is driven through a plain blocking CLI
+  and a localhost protocol, so any agent runtime that can run a command can drive
+  it — Claude Code today; Codex / Cursor / Windsurf next.
+- **GitHub-PR-grade UX, locally.** Syntax-highlighted diff (in your VS Code
+  theme), split / inline modes, line-anchored threads, multi-line comments,
+  viewed-collapse, resolve, and Cmd/Ctrl+Enter hotkeys.
+- **Review is the gate.** Approve actually unblocks the merge; the agent never
+  merges on decline — it fixes and comes back.
+- **Local & private.** Nothing leaves your machine — no third-party review
+  service, no telemetry.
+
 ## Architecture
 
 Two processes, one localhost channel:

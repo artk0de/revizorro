@@ -79,9 +79,12 @@ export class ReviewForm {
         } else if (m.type === "approve") {
           this.host.approve();
           this.panel?.dispose();
-        } else if (m.type === "decline") {
-          void this.host.decline();
+        } else if (m.type === "requestChanges") {
+          void this.host.requestChanges();
           this.panel?.dispose();
+        } else if (m.type === "clarify") {
+          // Form stays open; the agent answers in-place (loaders show).
+          void this.host.clarify();
         } else if (m.type === "toggleViewMode") {
           this.viewMode = this.viewMode === "inline" ? "split" : "inline";
           if (this.lastMessage) {

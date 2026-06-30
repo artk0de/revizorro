@@ -47,7 +47,7 @@ retry.
 
    - **`comment`** `{ threadId, file, range, body }` — a passive comment. Note it,
      but do NOT edit code yet. You may reply via `--push` if a clarification
-     helps. Fixes are applied later, on `declined`. Loop back to step 2.
+     helps. Fixes are applied later, on `changes_requested`. Loop back to step 2.
 
    - **`idle`** — no human action before the poll cutoff. Just re-arm:
 
@@ -61,10 +61,10 @@ retry.
    - **`decision` / `approved`** — the human approved. Stop the loop. Proceed to
      merge (or report ready-to-merge).
 
-   - **`decision` / `declined`** `{ comments: [...] }` — NOW apply fixes for every
-     comment. For each addressed comment, `--push` a reply into its thread saying
-     what you did (so the human can verify and mark it resolved). Then start a NEW
-     round:
+   - **`decision` / `changes_requested`** `{ comments: [...] }` — NOW apply fixes
+     for every comment. For each addressed comment, `--push` a reply into its
+     thread saying what you did (so the human can verify and mark it resolved).
+     Then start a NEW round:
 
      ```bash
      revizorro review --worktree
@@ -72,6 +72,13 @@ retry.
 
      Unchanged files the human already marked viewed will be collapsed. Loop back
      to step 2.
+
+   - **`decision` / `clarify`** `{ comments: [...] }` — the human wants answers,
+     NOT code changes. Answer EVERY comment in the list: `--push` a reply into
+     each thread. Do not edit code. The form stays open and shows a loader per
+     unanswered thread (and a top-bar total) that clears as your replies land.
+     After answering all, re-enter with `revizorro review --worktree` to wait for
+     the human's next decision. Loop back to step 2.
 
 ## Push-file shape
 
@@ -91,5 +98,6 @@ the diff. Either array may be empty.
 
 - One event per call. Always re-enter the loop after acting — never assume the
   form closed.
-- Do NOT merge on `declined`. Fix, re-submit, and wait for `approved`.
+- Do NOT merge on `changes_requested`. Fix, re-submit, and wait for `approved`.
+- On `clarify`, only answer — never edit code.
 - On `approved`, the review gate has passed — you may merge the worktree.

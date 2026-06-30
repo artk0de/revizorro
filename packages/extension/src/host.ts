@@ -40,6 +40,22 @@ export class ReviewHost {
     this.events.onPush((_wt, push) => {
       void this.handlePush(push);
     });
+    // Open the form whenever the agent connects with `review` — this is when the
+    // form appears, not on activation/reload.
+    this.events.onReview(() => {
+      void this.openForReview();
+    });
+  }
+
+  /** Open the form for a `review` call: re-render the open round, or start a fresh one. */
+  private async openForReview(): Promise<void> {
+    const cur = await this.store.load(this.worktreeId);
+    if (cur?.status === "open") {
+      if (this.lastDiff.length === 0) this.lastDiff = await this.diff.diff(this.worktreeId);
+      this.onState(cur, this.lastDiff);
+    } else {
+      await this.newRound();
+    }
   }
 
   /** Apply an agent push: append replies/comments, clear pending loaders, persist, re-render. */
@@ -58,7 +74,7 @@ export class ReviewHost {
     const p = join(this.repoRoot, ".claude", "revizorro", "port");
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, String(port), "utf8");
-    await this.newRound();
+    // Don't open the form on activation — only when the agent runs `review`.
   }
 
   /** Recompute the diff and open a fresh review round (collapsing unchanged viewed files). */
@@ -76,15 +92,38 @@ export class ReviewHost {
     this.events.emit(this.worktreeId, { type: "decision", verdict: "approved", comments: [] });
   }
 
-  async decline(): Promise<void> {
-    const s = await this.finalize("declined");
-    const comments = s.threads.map((t) => ({
+  /** Request changes: the agent fixes every open comment and re-submits a new round. */
+  async requestChanges(): Promise<void> {
+    const s = await this.finalize("changes_requested");
+    const comments = s.threads
+      .filter((t) => !t.resolved)
+      .map((t) => ({
+        threadId: t.id,
+        file: t.file,
+        range: t.range,
+        body: t.messages.map((m) => m.body).join("\n"),
+      }));
+    this.events.emit(this.worktreeId, { type: "decision", verdict: "changes_requested", comments });
+  }
+
+  /**
+   * Clarify: the agent answers every open thread (no code changes). The form
+   * stays open; open threads are marked pending so the loaders show until each
+   * is answered.
+   */
+  async clarify(): Promise<void> {
+    const cur = await this.store.load(this.worktreeId);
+    if (!cur) return;
+    const open = cur.threads.filter((t) => !t.resolved);
+    for (const t of open) this.pending.add(t.id);
+    this.onState(cur, this.lastDiff);
+    const comments = open.map((t) => ({
       threadId: t.id,
       file: t.file,
       range: t.range,
       body: t.messages.map((m) => m.body).join("\n"),
     }));
-    this.events.emit(this.worktreeId, { type: "decision", verdict: "declined", comments });
+    this.events.emit(this.worktreeId, { type: "decision", verdict: "clarify", comments });
   }
 
   /**
@@ -166,7 +205,7 @@ export class ReviewHost {
     return this.events.stop();
   }
 
-  private async finalize(verdict: "approved" | "declined"): Promise<SessionState> {
+  private async finalize(verdict: "approved" | "changes_requested"): Promise<SessionState> {
     const cur = (await this.store.load(this.worktreeId)) ?? (await this.newRound());
     const next = applyDecision(cur, verdict);
     await this.store.save(next);

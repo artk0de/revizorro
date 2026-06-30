@@ -24,7 +24,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     vscode.commands.registerCommand("revizorro.approve", () => host?.approve()),
-    vscode.commands.registerCommand("revizorro.decline", () => void host?.decline()),
+    vscode.commands.registerCommand("revizorro.requestChanges", () => void host?.requestChanges()),
+    vscode.commands.registerCommand("revizorro.clarify", () => void host?.clarify()),
     { dispose: () => void host?.stop() },
     { dispose: () => form?.dispose() },
   );
