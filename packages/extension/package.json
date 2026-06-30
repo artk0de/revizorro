@@ -6,6 +6,8 @@
   "version": "0.0.1",
   "type": "module",
   "main": "./dist/extension.cjs",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/artk0de/revizorro" },
   "engines": { "vscode": "^1.90.0" },
   "activationEvents": ["onStartupFinished"],
   "contributes": {
