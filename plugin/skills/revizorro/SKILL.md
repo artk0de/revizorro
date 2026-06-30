@@ -45,9 +45,9 @@ retry.
 
      Then loop back to step 2 with the next event.
 
-   - **`comment`** `{ threadId, file, range, body }` — the human left a comment
-     to address now. Either fix the code immediately, or reply with a plan via
-     `--push` (same push-file mechanism). Loop back to step 2.
+   - **`comment`** `{ threadId, file, range, body }` — a passive comment. Note it,
+     but do NOT edit code yet. You may reply via `--push` if a clarification
+     helps. Fixes are applied later, on `declined`. Loop back to step 2.
 
    - **`idle`** — no human action before the poll cutoff. Just re-arm:
 
@@ -61,8 +61,10 @@ retry.
    - **`decision` / `approved`** — the human approved. Stop the loop. Proceed to
      merge (or report ready-to-merge).
 
-   - **`decision` / `declined`** `{ comments: [...] }` — apply fixes for every
-     comment, then start a NEW round:
+   - **`decision` / `declined`** `{ comments: [...] }` — NOW apply fixes for every
+     comment. For each addressed comment, `--push` a reply into its thread saying
+     what you did (so the human can verify and mark it resolved). Then start a NEW
+     round:
 
      ```bash
      revizorro review --worktree

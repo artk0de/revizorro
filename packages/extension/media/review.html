@@ -5,44 +5,233 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>revizorro review</title>
     <style>
-      body { font-family: var(--vscode-font-family); padding: 0.5rem; }
-      .toolbar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
-      button { cursor: pointer; }
-      .approve { color: var(--vscode-testing-iconPassed); }
-      .decline { color: var(--vscode-testing-iconFailed); }
-      ul { list-style: none; padding: 0; }
-      li { padding: 0.2rem 0; }
-      li.collapsed { opacity: 0.5; }
-      .round { font-size: 0.85em; opacity: 0.7; }
+      body {
+        font-family: var(--vscode-font-family);
+        color: var(--vscode-foreground);
+        padding: 0;
+        margin: 0;
+      }
+      .toolbar {
+        position: sticky;
+        top: 0;
+        background: var(--vscode-editor-background);
+        border-bottom: 1px solid var(--vscode-panel-border);
+        padding: 0.5rem 0.75rem;
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        z-index: 10;
+      }
+      .toolbar .grow { flex: 1; }
+      .round { opacity: 0.7; font-size: 0.85em; }
+      button {
+        cursor: pointer;
+        background: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+        border: none;
+        padding: 0.25rem 0.6rem;
+        border-radius: 3px;
+        font-family: var(--vscode-font-family);
+        font-size: 0.85em;
+      }
+      button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+      button.approve { background: var(--vscode-testing-iconPassed); color: #000; }
+      button.decline { background: var(--vscode-testing-iconFailed); color: #000; }
+      .file {
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 4px;
+        margin: 0.6rem 0.75rem;
+        overflow: hidden;
+      }
+      .file-head {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.35rem 0.6rem;
+        background: var(--vscode-editorGroupHeader-tabsBackground);
+        cursor: pointer;
+        user-select: none;
+      }
+      .file-head .path { font-weight: 600; flex: 1; }
+      .file-head .tag { opacity: 0.6; font-size: 0.8em; }
+      .file.viewed .file-head { opacity: 0.55; }
+      .diff {
+        font-family: var(--vscode-editor-font-family, ui-monospace, "SF Mono", Menlo, monospace);
+        font-size: var(--vscode-editor-font-size, 13px);
+        line-height: 1.45;
+        overflow-x: auto;
+      }
+      .ln { display: flex; white-space: pre; }
+      .ln .gut {
+        width: 1.6em;
+        flex: none;
+        text-align: center;
+        opacity: 0.25;
+      }
+      .ln .gut.cm { cursor: pointer; }
+      .ln:hover .gut.cm { opacity: 0.95; }
+      .ln .no {
+        width: 3.2em;
+        text-align: right;
+        padding: 0 0.5em;
+        opacity: 0.45;
+        user-select: none;
+        flex: none;
+      }
+      .ln .txt { flex: 1; padding-right: 0.5em; }
+      .ln .no.pick { cursor: pointer; }
+      .ln .no.pick:hover { text-decoration: underline; opacity: 0.9; }
+      .ln.sel { background: var(--vscode-editor-selectionBackground, rgba(120, 150, 255, 0.25)); }
+      .ln:hover { background: var(--vscode-editor-hoverHighlightBackground); }
+      .ln.add { background: rgba(80, 200, 120, 0.13); }
+      .ln.add .txt::before { content: "+"; opacity: 0.5; }
+      .ln.del { background: rgba(220, 90, 90, 0.13); }
+      .ln.del .txt::before { content: "−"; opacity: 0.5; }
+      .ln.ctx .txt::before { content: " "; }
+      .ln.hunk { background: var(--vscode-editorGroupHeader-tabsBackground); opacity: 0.7; padding-left: 0.5em; }
+      /* split view */
+      .srow { display: flex; }
+      .srow .side {
+        flex: 1;
+        display: flex;
+        white-space: pre;
+        border-left: 1px solid var(--vscode-panel-border);
+        min-width: 0;
+      }
+      .srow .side .no { width: 3em; text-align: right; padding: 0 0.4em; opacity: 0.4; flex: none; }
+      .srow .side .txt { flex: 1; padding: 0 0.4em; overflow: hidden; }
+      .srow .side.del { background: rgba(220, 90, 90, 0.13); }
+      .srow .side.add { background: rgba(80, 200, 120, 0.13); }
+      .srow.hunk { background: var(--vscode-editorGroupHeader-tabsBackground); opacity: 0.7; padding-left: 0.5em; }
+      /* GitLab-style comment threads */
+      .thread {
+        margin: 0.3rem 0.6rem 0.5rem 5.4em;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 6px;
+        background: var(--vscode-editorWidget-background);
+        font-family: var(--vscode-font-family);
+        font-size: 0.9em;
+        overflow: hidden;
+      }
+      .thread.resolved { opacity: 0.6; }
+      .thread-bar {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.2rem 0.5rem;
+        background: var(--vscode-editorGroupHeader-tabsBackground);
+        border-bottom: 1px solid var(--vscode-panel-border);
+      }
+      .thread-bar .grow { flex: 1; }
+      .thread-bar .status { color: var(--vscode-testing-iconPassed); font-size: 0.82em; }
+      button.ghost {
+        background: transparent;
+        border: 1px solid var(--vscode-panel-border);
+        color: var(--vscode-foreground);
+      }
+      .thread .msg { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--vscode-panel-border); }
+      .thread .msg:last-of-type { border-bottom: none; }
+      .msg-head { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem; }
+      .avatar {
+        width: 1.4em;
+        height: 1.4em;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75em;
+        font-weight: 700;
+        color: #fff;
+        flex: none;
+      }
+      .avatar.agent { background: #6f42c1; }
+      .avatar.human { background: #1f75cb; }
+      .msg-head .who { font-weight: 600; }
+      .msg-body { white-space: pre-wrap; }
+      .reply-box {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        padding: 0.4rem 0.6rem;
+        background: var(--vscode-editor-background);
+      }
+      .reply-box textarea {
+        flex: 1 0 100%;
+        resize: vertical;
+        font-family: var(--vscode-font-family);
+      }
+      .compose {
+        margin: 0.3rem 0.6rem 0.6rem 5.4em;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+      }
+      .compose textarea {
+        flex: 1 0 100%;
+        resize: vertical;
+        font-family: var(--vscode-font-family);
+      }
+      .binary { padding: 0.5rem 0.7rem; opacity: 0.6; }
+      .empty { padding: 1rem; opacity: 0.6; }
+      /* hljs — VS Code Dark+ token palette */
+      .hljs-keyword, .hljs-literal { color: #569cd6; }
+      .hljs-built_in { color: #4ec9b0; }
+      .hljs-type, .hljs-class .hljs-title, .hljs-title.class_ { color: #4ec9b0; }
+      .hljs-string, .hljs-regexp, .hljs-meta-string { color: #ce9178; }
+      .hljs-number { color: #b5cea8; }
+      .hljs-comment, .hljs-quote { color: #6a9955; font-style: italic; }
+      .hljs-function .hljs-title, .hljs-title.function_ { color: #dcdcaa; }
+      .hljs-attr, .hljs-property, .hljs-variable, .hljs-params, .hljs-template-variable { color: #9cdcfe; }
+      .hljs-tag, .hljs-name, .hljs-selector-tag { color: #569cd6; }
+      .hljs-attribute { color: #9cdcfe; }
+      .hljs-symbol, .hljs-bullet, .hljs-meta { color: #d7ba7d; }
+      .hljs-deletion { color: #ce9178; }
+      .hljs-addition { color: #b5cea8; }
+      .hljs-emphasis { font-style: italic; }
+      .hljs-strong { font-weight: 700; }
+      /* hljs — VS Code Light+ overrides (applied on light themes) */
+      body.vscode-light .hljs-keyword, body.vscode-light .hljs-literal { color: #0000ff; }
+      body.vscode-light .hljs-built_in { color: #267f99; }
+      body.vscode-light .hljs-type, body.vscode-light .hljs-class .hljs-title,
+      body.vscode-light .hljs-title.class_ { color: #267f99; }
+      body.vscode-light .hljs-string, body.vscode-light .hljs-regexp { color: #a31515; }
+      body.vscode-light .hljs-number { color: #098658; }
+      body.vscode-light .hljs-comment, body.vscode-light .hljs-quote { color: #008000; }
+      body.vscode-light .hljs-function .hljs-title, body.vscode-light .hljs-title.function_ { color: #795e26; }
+      body.vscode-light .hljs-attr, body.vscode-light .hljs-property,
+      body.vscode-light .hljs-variable, body.vscode-light .hljs-params,
+      body.vscode-light .hljs-template-variable { color: #001080; }
+      body.vscode-light .hljs-tag, body.vscode-light .hljs-name,
+      body.vscode-light .hljs-selector-tag { color: #800000; }
+      body.vscode-light .hljs-attribute { color: #001080; }
+      body.vscode-light .hljs-symbol, body.vscode-light .hljs-bullet,
+      body.vscode-light .hljs-meta { color: #0000ff; }
+      /* loader / spinner */
+      .loader { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.6rem; opacity: 0.8; font-style: italic; }
+      .spinner {
+        width: 0.9em; height: 0.9em; flex: none;
+        border: 2px solid var(--vscode-foreground);
+        border-top-color: transparent;
+        border-radius: 50%;
+        display: inline-block;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .thread-bar { cursor: pointer; }
+      .thread-bar .tcaret { opacity: 0.6; }
     </style>
   </head>
   <body>
     <div class="toolbar">
+      <span class="round" id="round"></span>
+      <button id="toggle">⇆ split/inline</button>
+      <span class="grow"></span>
       <button class="approve" id="approve">✓ Approve</button>
       <button class="decline" id="decline">✗ Decline</button>
-      <button id="toggle">⇆ Toggle view</button>
-      <span class="round" id="round"></span>
     </div>
-    <ul id="files"></ul>
+    <div id="files"><div class="empty">waiting for review session…</div></div>
     <script>
-      const vscode = acquireVsCodeApi();
-      document.getElementById("approve").onclick = () => vscode.postMessage({ type: "approve" });
-      document.getElementById("decline").onclick = () => vscode.postMessage({ type: "decline" });
-      document.getElementById("toggle").onclick = () => vscode.postMessage({ type: "toggleViewMode" });
-      window.addEventListener("message", (e) => {
-        const m = e.data;
-        if (m.type !== "state") return;
-        document.getElementById("round").textContent =
-          "round " + m.state.round + " · " + m.viewMode;
-        const ul = document.getElementById("files");
-        ul.innerHTML = "";
-        for (const [path, fv] of Object.entries(m.state.files)) {
-          const li = document.createElement("li");
-          if (fv.viewed) li.className = "collapsed";
-          li.textContent = (fv.viewed ? "▸ " : "▾ ") + path;
-          ul.appendChild(li);
-        }
-      });
+      // <!--WEBVIEW_JS-->
     </script>
   </body>
 </html>

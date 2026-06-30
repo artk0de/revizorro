@@ -1,7 +1,7 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { HttpReviewHost, FsSessionStore, GitDiffProvider } from "@revizorro/core-adapters";
-import { startRound, applyPush, applyDecision } from "@revizorro/core";
+import { startRound, applyPush, applyDecision, type DiffFile } from "@revizorro/core";
 import type { SessionState, FileRange } from "@revizorro/protocol";
 
 /**
@@ -13,12 +13,26 @@ export class ReviewHost {
   readonly events = new HttpReviewHost();
   private store: FsSessionStore;
   private diff: GitDiffProvider;
-  private idN = 0;
+  private lastDiff: DiffFile[] = [];
+  /** Thread ids awaiting an agent reply (Ask agent) — drives the form's loader. */
+  private pending = new Set<string>();
+
+  isPending(threadId: string): boolean {
+    return this.pending.has(threadId);
+  }
+
+  /** Highest numeric suffix across existing thread ids — so new ids never collide after a restart. */
+  private maxId(threads: SessionState["threads"]): number {
+    return threads.reduce((m, t) => {
+      const n = parseInt(t.id.replace(/\D/g, ""), 10);
+      return Number.isFinite(n) ? Math.max(m, n) : m;
+    }, 0);
+  }
 
   constructor(
     private readonly repoRoot: string,
     private readonly worktreeId: string,
-    private readonly onState: (s: SessionState) => void,
+    private readonly onState: (s: SessionState, diff: DiffFile[]) => void,
     baseRef = "main",
   ) {
     this.store = new FsSessionStore(repoRoot);
@@ -26,9 +40,11 @@ export class ReviewHost {
     this.events.onPush(async (_wt, push) => {
       const cur = await this.store.load(this.worktreeId);
       if (!cur) return;
-      const next = applyPush(cur, push, () => `a${++this.idN}`);
+      let n = this.maxId(cur.threads);
+      const next = applyPush(cur, push, () => `t${++n}`);
+      for (const r of push.replies) this.pending.delete(r.threadId);
       await this.store.save(next);
-      this.onState(next);
+      this.onState(next, this.lastDiff);
     });
   }
 
@@ -43,10 +59,10 @@ export class ReviewHost {
   /** Recompute the diff and open a fresh review round (collapsing unchanged viewed files). */
   async newRound(): Promise<SessionState> {
     const prev = await this.store.load(this.worktreeId);
-    const files = await this.diff.diff(this.worktreeId);
-    const s = startRound(prev, this.worktreeId, files);
+    this.lastDiff = await this.diff.diff(this.worktreeId);
+    const s = startRound(prev, this.worktreeId, this.lastDiff);
     await this.store.save(s);
-    this.onState(s);
+    this.onState(s, this.lastDiff);
     return s;
   }
 
@@ -66,14 +82,73 @@ export class ReviewHost {
     this.events.emit(this.worktreeId, { type: "decision", verdict: "declined", comments });
   }
 
-  /** Human leaves a comment that the agent should address now. */
-  emitComment(threadId: string, file: string, range: FileRange, body: string): void {
-    this.events.emit(this.worktreeId, { type: "comment", threadId, file, range, body });
+  /**
+   * Human opens a new thread on a line. `ask=true` wakes the agent for an
+   * immediate reply (question event); otherwise it is a passive comment.
+   */
+  async addHumanComment(file: string, range: FileRange, body: string, ask = false): Promise<void> {
+    const cur = await this.store.load(this.worktreeId);
+    if (!cur) return;
+    const threadId = `t${this.maxId(cur.threads) + 1}`;
+    const next: SessionState = {
+      ...cur,
+      threads: [
+        ...cur.threads,
+        { id: threadId, file, range, messages: [{ author: "human", body }], resolved: false },
+      ],
+    };
+    if (ask) this.pending.add(threadId);
+    await this.store.save(next);
+    this.onState(next, this.lastDiff);
+    this.events.emit(this.worktreeId, { type: ask ? "question" : "comment", threadId, file, range, body });
   }
 
-  /** Human asks the agent to reply to a thread in realtime (form stays open). */
-  emitQuestion(threadId: string, file: string, range: FileRange, body: string): void {
-    this.events.emit(this.worktreeId, { type: "question", threadId, file, range, body });
+  /** Human replies inside an existing thread. `ask=true` wakes the agent now. */
+  async addHumanReply(threadId: string, body: string, ask = false): Promise<void> {
+    const cur = await this.store.load(this.worktreeId);
+    if (!cur) return;
+    const thread = cur.threads.find((t) => t.id === threadId);
+    if (!thread) return;
+    const next: SessionState = {
+      ...cur,
+      threads: cur.threads.map((t) =>
+        t.id === threadId ? { ...t, messages: [...t.messages, { author: "human", body }] } : t,
+      ),
+    };
+    if (ask) this.pending.add(threadId);
+    await this.store.save(next);
+    this.onState(next, this.lastDiff);
+    this.events.emit(this.worktreeId, {
+      type: ask ? "question" : "comment",
+      threadId,
+      file: thread.file,
+      range: thread.range,
+      body,
+    });
+  }
+
+  /** Mark a thread resolved/unresolved; persist and re-render. Resolved threads drop from the next round. */
+  async resolveThread(threadId: string, resolved: boolean): Promise<void> {
+    const cur = await this.store.load(this.worktreeId);
+    if (!cur) return;
+    const next: SessionState = {
+      ...cur,
+      threads: cur.threads.map((t) => (t.id === threadId ? { ...t, resolved } : t)),
+    };
+    await this.store.save(next);
+    this.onState(next, this.lastDiff);
+  }
+
+  /** Human marks/unmarks a file as viewed; persist and re-render (no event). */
+  async setViewed(file: string, viewed: boolean): Promise<void> {
+    const cur = await this.store.load(this.worktreeId);
+    if (!cur || !cur.files[file]) return;
+    const next: SessionState = {
+      ...cur,
+      files: { ...cur.files, [file]: { ...cur.files[file], viewed } },
+    };
+    await this.store.save(next);
+    this.onState(next, this.lastDiff);
   }
 
   stop(): Promise<void> {
@@ -84,7 +159,6 @@ export class ReviewHost {
     const cur = (await this.store.load(this.worktreeId)) ?? (await this.newRound());
     const next = applyDecision(cur, verdict);
     await this.store.save(next);
-    this.onState(next);
     return next;
   }
 }

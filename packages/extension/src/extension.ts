@@ -18,14 +18,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const worktreeId = createHash("sha1").update(repoRoot).digest("hex").slice(0, 12);
   const mediaDir = join(context.extensionPath, "media");
 
-  host = new ReviewHost(repoRoot, worktreeId, (state) => form?.render(state));
-  form = new ReviewForm(host, repoRoot, mediaDir);
+  host = new ReviewHost(repoRoot, worktreeId, (state, diff) => form?.render(state, diff));
+  form = new ReviewForm(host, mediaDir);
   await host.start();
 
   context.subscriptions.push(
     vscode.commands.registerCommand("revizorro.approve", () => host?.approve()),
     vscode.commands.registerCommand("revizorro.decline", () => void host?.decline()),
-    vscode.commands.registerCommand("revizorro.toggleViewMode", () => form?.toggleViewMode()),
     { dispose: () => void host?.stop() },
     { dispose: () => form?.dispose() },
   );

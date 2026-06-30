@@ -1,4 +1,5 @@
 node_modules
 dist
 *.vsix
+packages/extension/media/webview.js
 .claude/revizorro/
