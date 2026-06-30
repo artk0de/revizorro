@@ -10,9 +10,7 @@ async function main() {
   const repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
     encoding: "utf8",
   }).trim();
-  const port = Number(
-    readFileSync(join(repoRoot, ".claude", "revizorro", "port"), "utf8").trim(),
-  );
+  const port = Number(readFileSync(join(repoRoot, ".claude", "revizorro", "port"), "utf8").trim());
 
   const deps = {
     transport: new HttpReviewClient(port),
@@ -21,7 +19,7 @@ async function main() {
   };
 
   const { stdout, exitCode } = await runReview(process.argv.slice(2), deps);
-  if (stdout) process.stdout.write(stdout + "\n");
+  if (stdout) process.stdout.write(`${stdout}\n`);
   process.exit(exitCode);
 }
 

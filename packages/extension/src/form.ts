@@ -84,8 +84,9 @@ export class ReviewForm {
           this.panel?.dispose();
         } else if (m.type === "toggleViewMode") {
           this.viewMode = this.viewMode === "inline" ? "split" : "inline";
-          if (this.lastMessage)
+          if (this.lastMessage) {
             void this.panel?.webview.postMessage({ ...this.lastMessage, viewMode: this.viewMode });
+          }
         } else if (m.type === "setViewed" && m.file !== undefined) {
           void this.host.setViewed(m.file, !!m.viewed);
         } else if (

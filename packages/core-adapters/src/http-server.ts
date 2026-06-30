@@ -1,11 +1,12 @@
 import { createServer, type Server } from "node:http";
-import { ReviewEvent, PushPayload } from "@revizorro/protocol";
+import type { ReviewEvent } from "@revizorro/protocol";
+import { PushPayload } from "@revizorro/protocol";
 
 type Waiter = (e: ReviewEvent) => void;
 
 export class HttpReviewHost {
   private server?: Server;
-  private waiters = new Map<string, Waiter[]>();
+  private readonly waiters = new Map<string, Waiter[]>();
   private pushCb?: (worktreeId: string, push: PushPayload) => void;
 
   onPush(cb: (worktreeId: string, push: PushPayload) => void): void {
@@ -18,16 +19,22 @@ export class HttpReviewHost {
     if (next) next(event);
   }
 
-  start(): Promise<number> {
-    this.server = createServer((req, res) => {
+  async start(): Promise<number> {
+    const server = createServer((req, res) => {
       if (req.method !== "POST" || req.url !== "/review") {
         res.statusCode = 404;
-        return res.end();
+        res.end();
+        return;
       }
       let body = "";
-      req.on("data", (c) => (body += c));
+      req.on("data", (chunk: Buffer) => {
+        body += chunk.toString();
+      });
       req.on("end", () => {
-        const { worktreeId, push } = JSON.parse(body || "{}");
+        const { worktreeId, push } = JSON.parse(body || "{}") as {
+          worktreeId: string;
+          push?: unknown;
+        };
         // Register the response waiter BEFORE invoking pushCb: a push handler may
         // synchronously emit an event, which must find a waiting client.
         const list = this.waiters.get(worktreeId) ?? [];
@@ -39,14 +46,21 @@ export class HttpReviewHost {
         if (push !== undefined && this.pushCb) this.pushCb(worktreeId, PushPayload.parse(push));
       });
     });
+    this.server = server;
     return new Promise((resolve) =>
-      this.server!.listen(0, "127.0.0.1", () => {
-        resolve((this.server!.address() as { port: number }).port);
+      server.listen(0, "127.0.0.1", () => {
+        resolve((server.address() as { port: number }).port);
       }),
     );
   }
 
-  stop(): Promise<void> {
-    return new Promise((r) => (this.server ? this.server.close(() => r()) : r()));
+  async stop(): Promise<void> {
+    return new Promise((r) =>
+      this.server
+        ? this.server.close(() => {
+            r();
+          })
+        : r(),
+    );
   }
 }

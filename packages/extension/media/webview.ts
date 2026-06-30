@@ -17,7 +17,7 @@ hljs.registerLanguage("bash", bash);
 hljs.registerLanguage("markdown", markdown);
 hljs.registerLanguage("yaml", yaml);
 
-declare function acquireVsCodeApi(): { postMessage(m: unknown): void };
+declare function acquireVsCodeApi(): { postMessage: (m: unknown) => void };
 const vscode = acquireVsCodeApi();
 vscode.postMessage({ type: "ready" });
 
@@ -52,12 +52,14 @@ let state: Msg | null = null;
 let sel: { file: string; start: number; end: number } | null = null;
 
 function selectLine(file: string, line: number, shift: boolean): void {
-  if (shift && sel && sel.file === file) sel.end = line;
+  if (shift && sel?.file === file) sel.end = line;
   else sel = { file, start: line, end: line };
   highlightSelection();
 }
 function selectionFor(file: string, line: number): { start: number; end: number } {
-  if (sel && sel.file === file) return { start: Math.min(sel.start, sel.end), end: Math.max(sel.start, sel.end) };
+  if (sel?.file === file) {
+    return { start: Math.min(sel.start, sel.end), end: Math.max(sel.start, sel.end) };
+  }
   return { start: line, end: line };
 }
 function clearSelection(): void {
@@ -65,26 +67,45 @@ function clearSelection(): void {
   highlightSelection();
 }
 function highlightSelection(): void {
-  document.querySelectorAll(".ln.sel").forEach((e) => e.classList.remove("sel"));
-  if (!sel) return;
-  const lo = Math.min(sel.start, sel.end);
-  const hi = Math.max(sel.start, sel.end);
+  document.querySelectorAll(".ln.sel").forEach((e) => {
+    e.classList.remove("sel");
+  });
+  const cur = sel;
+  if (!cur) return;
+  const lo = Math.min(cur.start, cur.end);
+  const hi = Math.max(cur.start, cur.end);
   document.querySelectorAll(".ln").forEach((e) => {
     const row = e as HTMLElement;
     const ln = row.dataset.line ? parseInt(row.dataset.line, 10) : NaN;
-    if (row.dataset.file === sel!.file && ln >= lo && ln <= hi) row.classList.add("sel");
+    if (row.dataset.file === cur.file && ln >= lo && ln <= hi) row.classList.add("sel");
   });
 }
 
 const EXT_LANG: Record<string, string> = {
-  ts: "typescript", tsx: "typescript", mts: "typescript", cts: "typescript",
-  js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
-  json: "json", jsonc: "json",
-  html: "xml", xml: "xml", svg: "xml", vue: "xml",
-  css: "css", scss: "css", less: "css",
-  sh: "bash", bash: "bash", zsh: "bash",
-  md: "markdown", markdown: "markdown",
-  yml: "yaml", yaml: "yaml",
+  ts: "typescript",
+  tsx: "typescript",
+  mts: "typescript",
+  cts: "typescript",
+  js: "javascript",
+  jsx: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+  json: "json",
+  jsonc: "json",
+  html: "xml",
+  xml: "xml",
+  svg: "xml",
+  vue: "xml",
+  css: "css",
+  scss: "css",
+  less: "css",
+  sh: "bash",
+  bash: "bash",
+  zsh: "bash",
+  md: "markdown",
+  markdown: "markdown",
+  yml: "yaml",
+  yaml: "yaml",
 };
 function langFor(path: string): string | null {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
@@ -118,8 +139,9 @@ function parsePatch(patch: string): Line[] {
       raw.startsWith("new mode") ||
       raw.startsWith("similarity") ||
       raw.startsWith("rename ")
-    )
+    ) {
       continue;
+    }
     if (raw.startsWith("@@")) {
       const m = raw.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
       if (m) {
@@ -167,12 +189,12 @@ function inlineBody(f: FileView, lines: Line[], lang: string | null): HTMLElemen
       body.append(el("div", "ln hunk", l.text));
       continue;
     }
-    const row = el("div", "ln " + l.kind);
+    const row = el("div", `ln ${l.kind}`);
     const gut = el("span", "gut");
-    if (l.newNo != null) {
+    if (l.newNo !== undefined) {
       const line = l.newNo;
       gut.textContent = "💬";
-      gut.title = "comment on line " + line;
+      gut.title = `comment on line ${line}`;
       gut.classList.add("cm");
       gut.onclick = () => {
         const sel = selectionFor(f.path, line);
@@ -180,17 +202,23 @@ function inlineBody(f: FileView, lines: Line[], lang: string | null): HTMLElemen
         clearSelection();
       };
     }
-    const no = el("span", "no", l.kind === "del" ? "" : l.newNo != null ? String(l.newNo) : "");
-    if (l.newNo != null) {
+    const no = el(
+      "span",
+      "no",
+      l.kind === "del" ? "" : l.newNo !== undefined ? String(l.newNo) : "",
+    );
+    if (l.newNo !== undefined) {
       const line = l.newNo;
       no.classList.add("pick");
-      no.onclick = (e) => selectLine(f.path, line, (e as MouseEvent).shiftKey);
+      no.onclick = (e) => {
+        selectLine(f.path, line, (e as MouseEvent).shiftKey);
+      };
     }
     row.dataset.file = f.path;
-    if (l.newNo != null) row.dataset.line = String(l.newNo);
+    if (l.newNo !== undefined) row.dataset.line = String(l.newNo);
     row.append(gut, no, codeSpan(l.text, lang));
     body.append(row);
-    const th = l.newNo != null ? threadsByLine[l.newNo] : undefined;
+    const th = l.newNo !== undefined ? threadsByLine[l.newNo] : undefined;
     if (th) for (const t of th) body.append(renderThread(t));
   }
   return body;
@@ -221,7 +249,7 @@ function splitBody(lines: Line[], lang: string | null): HTMLElement {
   return body;
 }
 function sideCell(l: Line | undefined, kind: "del" | "add", lang: string | null): HTMLElement {
-  const s = el("div", "side" + (l ? " " + kind : " empty"));
+  const s = el("div", `side${l ? ` ${kind}` : " empty"}`);
   if (!l) return s;
   const no = el("span", "no", String(kind === "del" ? (l.oldNo ?? "") : (l.newNo ?? "")));
   s.append(no, codeSpan(l.text, lang));
@@ -234,16 +262,20 @@ function srow(d: Line | undefined, a: Line | undefined, lang: string | null): HT
 }
 
 function avatar(author: string): HTMLElement {
-  const a = el("span", "avatar " + (author === "agent" ? "agent" : "human"));
+  const a = el("span", `avatar ${author === "agent" ? "agent" : "human"}`);
   a.textContent = author === "agent" ? "R" : "Y";
   return a;
 }
 
 function renderThread(t: FileView["threads"][number]): HTMLElement {
-  const box = el("div", "thread" + (t.resolved ? " resolved" : ""));
+  const box = el("div", `thread${t.resolved ? " resolved" : ""}`);
   const bar = el("div", "thread-bar");
   const caret = el("span", "tcaret", t.resolved ? "▸" : "▾");
-  bar.append(caret, el("span", "status", t.resolved ? "✓ resolved" : `${t.messages.length} comment(s)`), el("span", "grow"));
+  bar.append(
+    caret,
+    el("span", "status", t.resolved ? "✓ resolved" : `${t.messages.length} comment(s)`),
+    el("span", "grow"),
+  );
   const resolveBtn = el("button", "ghost", t.resolved ? "Unresolve" : "Resolve");
   resolveBtn.onclick = (e) => {
     e.stopPropagation();
@@ -305,8 +337,7 @@ function openCompose(row: HTMLElement, file: string, startLine: number, endLine:
   const box = el("div", "compose");
   const ta = document.createElement("textarea");
   ta.rows = 2;
-  const where =
-    startLine === endLine ? "line " + startLine : `lines ${startLine}–${endLine}`;
+  const where = startLine === endLine ? `line ${startLine}` : `lines ${startLine}–${endLine}`;
   ta.placeholder = `Comment on ${where}…  (⌘/Ctrl+Enter comment · ⌘/Ctrl+Alt+Enter ask)`;
   const commentFn = () => {
     const v = ta.value.trim();
@@ -328,13 +359,14 @@ function openCompose(row: HTMLElement, file: string, startLine: number, endLine:
   ta.focus();
 }
 
-const LOCKFILE = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|Cargo\.lock)$/;
+const LOCKFILE =
+  /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|Cargo\.lock)$/;
 
 function renderFile(f: FileView, mode: string): HTMLElement {
   const lineCount = f.patch ? f.patch.split("\n").length : 0;
   const big = LOCKFILE.test(f.path) || lineCount > 400;
   const collapsed = f.viewed || big;
-  const wrap = el("div", "file" + (f.viewed ? " viewed" : ""));
+  const wrap = el("div", `file${f.viewed ? " viewed" : ""}`);
   const head = el("div", "file-head");
   const caret = el("span", "caret", collapsed ? "▸" : "▾");
   const path = el("span", "path", f.path);
@@ -369,7 +401,7 @@ function renderFile(f: FileView, mode: string): HTMLElement {
 function render(): void {
   if (!state) return;
   const round = document.getElementById("round");
-  if (round) round.textContent = "round " + state.round + " · " + state.status;
+  if (round) round.textContent = `round ${state.round} · ${state.status}`;
   const root = document.getElementById("files");
   if (!root) return;
   root.innerHTML = "";
@@ -380,9 +412,16 @@ function render(): void {
   for (const f of state.files) root.append(renderFile(f, state.viewMode || "inline"));
 }
 
-document.getElementById("approve")!.onclick = () => vscode.postMessage({ type: "approve" });
-document.getElementById("decline")!.onclick = () => vscode.postMessage({ type: "decline" });
-document.getElementById("toggle")!.onclick = () => vscode.postMessage({ type: "toggleViewMode" });
+function bindButton(id: string, msgType: string): void {
+  const btn = document.getElementById(id);
+  if (btn)
+    {btn.onclick = () => {
+      vscode.postMessage({ type: msgType });
+    };}
+}
+bindButton("approve", "approve");
+bindButton("decline", "decline");
+bindButton("toggle", "toggleViewMode");
 
 window.addEventListener("message", (e: MessageEvent) => {
   if ((e.data as Msg).type !== "state") return;

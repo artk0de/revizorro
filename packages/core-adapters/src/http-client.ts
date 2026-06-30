@@ -8,7 +8,7 @@ export class HttpReviewClient implements ReviewTransport {
     private readonly host = "127.0.0.1",
   ) {}
 
-  review(worktreeId: string, push?: PushPayload): Promise<ReviewEvent> {
+  async review(worktreeId: string, push?: PushPayload): Promise<ReviewEvent> {
     const payload = JSON.stringify({ worktreeId, push });
     return new Promise((resolve, reject) => {
       const req = request(
@@ -24,17 +24,22 @@ export class HttpReviewClient implements ReviewTransport {
         },
         (res) => {
           let body = "";
-          res.on("data", (c) => (body += c));
+          res.on("data", (chunk: Buffer) => {
+            body += chunk.toString();
+          });
           res.on("end", () => {
             try {
-              resolve(ReviewEvent.parse(JSON.parse(body)));
+              const parsed: unknown = JSON.parse(body);
+              resolve(ReviewEvent.parse(parsed));
             } catch (e) {
-              reject(e);
+              reject(e instanceof Error ? e : new Error(String(e)));
             }
           });
         },
       );
-      req.on("error", reject);
+      req.on("error", (err) => {
+        reject(err);
+      });
       req.end(payload);
     });
   }

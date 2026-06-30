@@ -12,7 +12,9 @@ describe("HTTP transport contract", () => {
     const port = await host.start();
     const client = new HttpReviewClient(port);
     const pending = client.review("wt1");
-    setTimeout(() => host.emit("wt1", { type: "decision", verdict: "approved", comments: [] }), 20);
+    setTimeout(() => {
+      host.emit("wt1", { type: "decision", verdict: "approved", comments: [] });
+    }, 20);
     expect(await pending).toEqual({ type: "decision", verdict: "approved", comments: [] });
   });
   it("surfaces a client push to the host", async () => {

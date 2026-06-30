@@ -17,7 +17,11 @@
  *   c <text>       leave a human comment on the first file
  *   n              start a new round (recompute diff, collapse unchanged viewed)
  */
-import { HttpReviewHost, FsSessionStore, GitDiffProvider } from "../packages/core-adapters/dist/index.js";
+import {
+  HttpReviewHost,
+  FsSessionStore,
+  GitDiffProvider,
+} from "../packages/core-adapters/dist/index.js";
 import { startRound, applyPush } from "../packages/core/dist/index.js";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -73,9 +77,12 @@ rl.on("line", async (line) => {
   const file = Object.keys(s?.files ?? {})[0] ?? "README.md";
   const range = { startLine: 0, endLine: 0 };
   if (cmd === "a") host.emit(worktreeId, { type: "decision", verdict: "approved", comments: [] });
-  else if (cmd === "d") host.emit(worktreeId, { type: "decision", verdict: "declined", comments: [] });
-  else if (cmd === "q") host.emit(worktreeId, { type: "question", threadId: `q${++idN}`, file, range, body });
-  else if (cmd === "c") host.emit(worktreeId, { type: "comment", threadId: `c${++idN}`, file, range, body });
-  else if (cmd === "n") await newRound();
+  else if (cmd === "d") {
+    host.emit(worktreeId, { type: "decision", verdict: "declined", comments: [] });
+  } else if (cmd === "q") {
+    host.emit(worktreeId, { type: "question", threadId: `q${++idN}`, file, range, body });
+  } else if (cmd === "c") {
+    host.emit(worktreeId, { type: "comment", threadId: `c${++idN}`, file, range, body });
+  } else if (cmd === "n") await newRound();
   else console.log("? (a | d | q <text> | c <text> | n)");
 });

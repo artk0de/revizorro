@@ -2,7 +2,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { HttpReviewHost, FsSessionStore, GitDiffProvider } from "@revizorro/core-adapters";
 import { startRound, applyPush, applyDecision, type DiffFile } from "@revizorro/core";
-import type { SessionState, FileRange } from "@revizorro/protocol";
+import type { SessionState, FileRange, PushPayload } from "@revizorro/protocol";
 
 /**
  * Long-lived review session host. Owns the HTTP event broker, the persisted
@@ -11,11 +11,11 @@ import type { SessionState, FileRange } from "@revizorro/protocol";
  */
 export class ReviewHost {
   readonly events = new HttpReviewHost();
-  private store: FsSessionStore;
-  private diff: GitDiffProvider;
+  private readonly store: FsSessionStore;
+  private readonly diff: GitDiffProvider;
   private lastDiff: DiffFile[] = [];
   /** Thread ids awaiting an agent reply (Ask agent) — drives the form's loader. */
-  private pending = new Set<string>();
+  private readonly pending = new Set<string>();
 
   isPending(threadId: string): boolean {
     return this.pending.has(threadId);
@@ -37,15 +37,20 @@ export class ReviewHost {
   ) {
     this.store = new FsSessionStore(repoRoot);
     this.diff = new GitDiffProvider(repoRoot, baseRef);
-    this.events.onPush(async (_wt, push) => {
-      const cur = await this.store.load(this.worktreeId);
-      if (!cur) return;
-      let n = this.maxId(cur.threads);
-      const next = applyPush(cur, push, () => `t${++n}`);
-      for (const r of push.replies) this.pending.delete(r.threadId);
-      await this.store.save(next);
-      this.onState(next, this.lastDiff);
+    this.events.onPush((_wt, push) => {
+      void this.handlePush(push);
     });
+  }
+
+  /** Apply an agent push: append replies/comments, clear pending loaders, persist, re-render. */
+  private async handlePush(push: PushPayload): Promise<void> {
+    const cur = await this.store.load(this.worktreeId);
+    if (!cur) return;
+    let n = this.maxId(cur.threads);
+    const next = applyPush(cur, push, () => `t${++n}`);
+    for (const r of push.replies) this.pending.delete(r.threadId);
+    await this.store.save(next);
+    this.onState(next, this.lastDiff);
   }
 
   async start(): Promise<void> {
@@ -100,7 +105,13 @@ export class ReviewHost {
     if (ask) this.pending.add(threadId);
     await this.store.save(next);
     this.onState(next, this.lastDiff);
-    this.events.emit(this.worktreeId, { type: ask ? "question" : "comment", threadId, file, range, body });
+    this.events.emit(this.worktreeId, {
+      type: ask ? "question" : "comment",
+      threadId,
+      file,
+      range,
+      body,
+    });
   }
 
   /** Human replies inside an existing thread. `ask=true` wakes the agent now. */
@@ -142,7 +153,7 @@ export class ReviewHost {
   /** Human marks/unmarks a file as viewed; persist and re-render (no event). */
   async setViewed(file: string, viewed: boolean): Promise<void> {
     const cur = await this.store.load(this.worktreeId);
-    if (!cur || !cur.files[file]) return;
+    if (!cur?.files[file]) return;
     const next: SessionState = {
       ...cur,
       files: { ...cur.files, [file]: { ...cur.files[file], viewed } },
@@ -151,7 +162,7 @@ export class ReviewHost {
     this.onState(next, this.lastDiff);
   }
 
-  stop(): Promise<void> {
+  async stop(): Promise<void> {
     return this.events.stop();
   }
 

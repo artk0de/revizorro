@@ -2,8 +2,12 @@
   "name": "revizorro-workspace",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
-  "workspaces": ["packages/*"],
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "build": "npm run build -w packages/protocol && npm run build -w packages/core && npm run build -w packages/core-adapters && npm run build -w packages/cli && npm run build -w packages/extension",
     "test": "vitest run",
