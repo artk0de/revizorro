@@ -1,7 +1,7 @@
 {
   "name": "revizorro",
   "displayName": "revizorro",
-  "description": "Local pre-merge AI code review loop",
+  "description": "Pre-merge AI code review in VS Code — an AI agent reviews your worktree diff GitHub-PR-style (inline comments, threads, Ask-agent, approve/decline) and applies fixes until you approve. No GitHub required.",
   "publisher": "revizorro",
   "version": "0.0.1",
   "type": "module",

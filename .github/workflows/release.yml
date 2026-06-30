@@ -1,34 +1,46 @@
 name: Release
 
-# Publishes on a version tag (e.g. v0.1.0). Requires repo secrets:
+# Automated release on push to main (semantic-release, conventional commits).
+# Publishes @revizorro/cli to npm and the extension to the VS Code Marketplace.
+# Required repo secrets:
 #   NPM_TOKEN  — npm automation token (publishes @revizorro/cli)
-#   VSCE_PAT   — Azure DevOps PAT (publishes the VS Code extension)
+#   VSCE_PAT   — Azure DevOps PAT with Marketplace > Manage (publishes the extension)
+#   (GITHUB_TOKEN is provided automatically)
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
 
 jobs:
-  publish:
+  release:
     runs-on: ubuntu-latest
+    # Skip semantic-release's own chore(release): version commit.
+    if: "!startsWith(github.event.head_commit.message, 'chore(release)')"
+    concurrency:
+      group: release-main
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           registry-url: "https://registry.npmjs.org"
       - run: npm ci
+      - run: npm run lint
       - run: npm run build
       - run: npm test
-
-      # CLI → npm
-      - run: npm publish -w packages/cli --access public
+      - name: Release
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      # Extension → VS Code Marketplace
-      - run: npm i -g @vscode/vsce
-      - run: vsce publish --no-dependencies -p "$VSCE_PAT"
-        working-directory: packages/extension
-        env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx semantic-release

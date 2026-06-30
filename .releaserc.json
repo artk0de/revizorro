@@ -1,0 +1,74 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "parserOpts": { "mergePattern": "^Merge" },
+        "releaseRules": [
+          { "breaking": true, "release": "minor" },
+
+          { "type": "feat", "scope": "test", "release": false },
+          { "type": "feat", "scope": "beads", "release": false },
+          { "type": "feat", "scope": "scripts", "release": false },
+          { "type": "feat", "scope": "ci", "release": false },
+          { "type": "feat", "scope": "deps", "release": false },
+          { "type": "feat", "scope": "lint", "release": false },
+          { "type": "feat", "release": "minor" },
+
+          { "type": "improve", "release": "patch" },
+          { "type": "fix", "release": "patch" },
+          { "type": "perf", "release": "patch" },
+          { "type": "docs", "release": "patch" },
+          { "type": "refactor", "release": "patch" },
+
+          { "type": "style", "release": false },
+          { "type": "test", "release": false },
+          { "type": "chore", "release": false },
+          { "type": "ci", "release": false },
+          { "type": "build", "release": false }
+        ]
+      }
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "conventionalcommits",
+        "parserOpts": { "mergePattern": "^Merge" },
+        "presetConfig": {
+          "types": [
+            { "type": "feat", "section": "Features" },
+            { "type": "improve", "section": "Improvements" },
+            { "type": "fix", "section": "Bug Fixes" },
+            { "type": "perf", "section": "Performance Improvements" },
+            { "type": "docs", "section": "Documentation" },
+            { "type": "refactor", "section": "Code Refactoring" },
+            { "type": "style", "section": "Styles", "hidden": true },
+            { "type": "test", "section": "Tests", "hidden": true },
+            { "type": "chore", "section": "Chores", "hidden": true },
+            { "type": "ci", "section": "CI/CD", "hidden": true },
+            { "type": "build", "section": "Build System", "hidden": true }
+          ]
+        }
+      }
+    ],
+    ["@semantic-release/changelog", { "changelogFile": "CHANGELOG.md" }],
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "node scripts/set-extension-version.mjs ${nextRelease.version} && npm run build",
+        "publishCmd": "cd packages/extension && npx --yes @vscode/vsce publish ${nextRelease.version} --no-dependencies -p \"$VSCE_PAT\""
+      }
+    ],
+    ["@semantic-release/npm", { "pkgRoot": "packages/cli", "npmPublish": true }],
+    [
+      "@semantic-release/git",
+      {
+        "assets": ["packages/cli/package.json", "packages/extension/package.json", "CHANGELOG.md"],
+        "message": "chore(release): ${nextRelease.version}\n\n${nextRelease.notes}"
+      }
+    ],
+    ["@semantic-release/github", {}]
+  ]
+}
