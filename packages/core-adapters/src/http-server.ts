@@ -8,9 +8,15 @@ export class HttpReviewHost {
   private server?: Server;
   private readonly waiters = new Map<string, Waiter[]>();
   private pushCb?: (worktreeId: string, push: PushPayload) => void;
+  private reviewCb?: (worktreeId: string) => void;
 
   onPush(cb: (worktreeId: string, push: PushPayload) => void): void {
     this.pushCb = cb;
+  }
+
+  /** Fires on every `review` request — lets the host re-open/refresh a closed form. */
+  onReview(cb: (worktreeId: string) => void): void {
+    this.reviewCb = cb;
   }
 
   emit(worktreeId: string, event: ReviewEvent): void {
@@ -43,6 +49,7 @@ export class HttpReviewHost {
           res.end(JSON.stringify(event));
         });
         this.waiters.set(worktreeId, list);
+        this.reviewCb?.(worktreeId);
         if (push !== undefined && this.pushCb) this.pushCb(worktreeId, PushPayload.parse(push));
       });
     });

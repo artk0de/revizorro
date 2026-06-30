@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { FsSessionStore } from "../src/index.js";
 import { startRound } from "@revizorro/core";
 
@@ -19,5 +19,13 @@ describe("FsSessionStore", () => {
     const s = startRound(null, "wt1", [{ path: "a.ts", contentHash: "h1" }]);
     await store.save(s);
     expect(await store.load("wt1")).toEqual(s);
+  });
+  it("returns null for a session written by an incompatible schema instead of throwing", async () => {
+    const store = new FsSessionStore(root);
+    const p = join(root, ".claude", "revizorro", "wt1", "session.json");
+    mkdirSync(dirname(p), { recursive: true });
+    // `status: "declined"` is from an older enum — must not crash the form.
+    writeFileSync(p, JSON.stringify({ worktreeId: "wt1", round: 1, status: "declined", files: {}, threads: [] }));
+    expect(await store.load("wt1")).toBeNull();
   });
 });

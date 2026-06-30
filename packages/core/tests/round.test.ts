@@ -14,7 +14,7 @@ describe("startRound", () => {
     const prev: SessionState = {
       worktreeId: "wt1",
       round: 1,
-      status: "declined",
+      status: "changes_requested",
       files: { "a.ts": { viewed: true, contentHash: "h1" } },
       threads: [
         {

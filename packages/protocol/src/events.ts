@@ -12,7 +12,9 @@ export const QuestionEvent = z.object({ type: z.literal("question"), ...threadAn
 export const CommentEvent = z.object({ type: z.literal("comment"), ...threadAnchor });
 export const DecisionEvent = z.object({
   type: z.literal("decision"),
-  verdict: z.enum(["approved", "declined"]),
+  // approved → flow passes; changes_requested → agent fixes + new round;
+  // clarify → agent answers all open questions, form stays open.
+  verdict: z.enum(["approved", "changes_requested", "clarify"]),
   comments: z.array(z.object(threadAnchor)).default([]),
 });
 export const IdleEvent = z.object({ type: z.literal("idle") });

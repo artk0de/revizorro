@@ -12,7 +12,7 @@
  *
  * Commands (typed into this process):
  *   a              approve   -> CLI's `review` returns {decision, approved}
- *   d              decline   -> returns {decision, declined}
+ *   d              request changes -> returns {decision, changes_requested}
  *   q <text>       ask the agent a question on the first file
  *   c <text>       leave a human comment on the first file
  *   n              start a new round (recompute diff, collapse unchanged viewed)
@@ -78,7 +78,7 @@ rl.on("line", async (line) => {
   const range = { startLine: 0, endLine: 0 };
   if (cmd === "a") host.emit(worktreeId, { type: "decision", verdict: "approved", comments: [] });
   else if (cmd === "d") {
-    host.emit(worktreeId, { type: "decision", verdict: "declined", comments: [] });
+    host.emit(worktreeId, { type: "decision", verdict: "changes_requested", comments: [] });
   } else if (cmd === "q") {
     host.emit(worktreeId, { type: "question", threadId: `q${++idN}`, file, range, body });
   } else if (cmd === "c") {

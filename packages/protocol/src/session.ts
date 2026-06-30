@@ -13,7 +13,7 @@ export const Thread = z.object({
 export const SessionState = z.object({
   worktreeId: z.string(),
   round: z.number().int().positive(),
-  status: z.enum(["open", "approved", "declined"]),
+  status: z.enum(["open", "approved", "changes_requested"]),
   files: z.record(z.string(), FileViewState),
   threads: z.array(Thread).default([]),
 });

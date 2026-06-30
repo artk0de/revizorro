@@ -12,6 +12,9 @@ export function startRound(
   return { worktreeId, round, status: "open", files, threads };
 }
 
-export function applyDecision(state: SessionState, verdict: "approved" | "declined"): SessionState {
+export function applyDecision(
+  state: SessionState,
+  verdict: "approved" | "changes_requested",
+): SessionState {
   return { ...state, status: verdict };
 }

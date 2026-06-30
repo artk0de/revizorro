@@ -11,12 +11,20 @@ export class FsSessionStore implements SessionStore {
   }
 
   async load(worktreeId: string): Promise<SessionState | null> {
+    let raw: string;
     try {
-      const raw = await readFile(this.path(worktreeId), "utf8");
-      return SessionState.parse(JSON.parse(raw));
+      raw = await readFile(this.path(worktreeId), "utf8");
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw e;
+    }
+    // A session written by an older/incompatible schema (or corrupt JSON) must
+    // not crash the form — treat it as absent and start a fresh round.
+    try {
+      const parsed = SessionState.safeParse(JSON.parse(raw));
+      return parsed.success ? parsed.data : null;
+    } catch {
+      return null;
     }
   }
 
