@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "revizorro",
+  "project_id": "5b5a43fb-6230-42a8-a521-9ff5dc24fd16"
+}
