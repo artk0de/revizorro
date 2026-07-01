@@ -11,7 +11,7 @@ export interface DiffProvider {
 }
 
 export interface ReviewTransport {
-  review: (worktreeId: string, push?: PushPayload) => Promise<ReviewEvent>;
+  review: (worktreeId: string, repoRoot: string, push?: PushPayload) => Promise<ReviewEvent>;
 }
 
 export interface FormPort {

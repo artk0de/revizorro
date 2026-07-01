@@ -13,13 +13,19 @@ your turn to act, not the form closing.
 
 ## Prerequisites
 
-- The revizorro VS Code extension is installed and the workspace is open (it
-  writes `.claude/revizorro/port`).
+- At least ONE VS Code window with the revizorro extension is open. It does NOT
+  have to be this project's window — every window registers itself, and the CLI
+  picks one, preferring a window that has THIS project open, else any other.
 - `revizorro` is on PATH (`npm i -g @revizorro/cli`).
 
-If `revizorro review` exits non-zero with a missing-port / connection error,
-tell the user to open the project in VS Code with the extension active, then
-retry.
+You may run from any terminal — the review window is separate. The CLI finds a
+host via the global registry (`~/.claude/revizorro/hosts/`) and sends this
+project's path, so the chosen window reviews THIS worktree regardless of which
+folder it has open. The form appears in that window.
+
+If `revizorro review` exits with `no revizorro window found …`, ask the user to
+open a folder in VS Code with the extension active, then retry. Dead/closed
+windows are skipped and cleaned up automatically.
 
 ## The loop
 
@@ -33,9 +39,10 @@ retry.
 
 2. Branch on `event.type`:
 
-   - **`question`** `{ threadId, file, range, body }` — the human asked you
-     something about a specific line range. Compose an answer, write it to a push
-     file, and re-enter the form (the form stays open):
+   - **`question`** `{ threadId, file, side, range, body }` — the human asked you
+     something about a specific line range (`side` is `"old"` for a deleted line,
+     `"new"` for added/context). Compose an answer, write it to a push file, and
+     re-enter the form (the form stays open):
 
      ```bash
      # write {"replies":[{"threadId":"<id>","body":"<your answer>"}],"comments":[]}
@@ -45,7 +52,7 @@ retry.
 
      Then loop back to step 2 with the next event.
 
-   - **`comment`** `{ threadId, file, range, body }` — a passive comment. Note it,
+   - **`comment`** `{ threadId, file, side, range, body }` — a passive comment. Note it,
      but do NOT edit code yet. You may reply via `--push` if a clarification
      helps. Fixes are applied later, on `changes_requested`. Loop back to step 2.
 

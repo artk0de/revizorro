@@ -1,21 +1,41 @@
-import { writeFileSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
 import { HttpReviewHost, FsSessionStore, GitDiffProvider } from "@revizorro/core-adapters";
 import { startRound, applyPush, applyDecision, editMessage, type DiffFile } from "@revizorro/core";
 import type { SessionState, FileRange, PushPayload, Side } from "@revizorro/protocol";
 
+/** Everything needed to review one repoRoot; rebuilt when the CLI targets another. */
+interface ReviewCtx {
+  repoRoot: string;
+  worktreeId: string;
+  store: FsSessionStore;
+  diff: GitDiffProvider;
+  lastDiff: DiffFile[];
+}
+
 /**
- * Long-lived review session host. Owns the HTTP event broker, the persisted
- * session, and the diff provider. The form (VS Code UI) calls the emit* methods
- * when the human acts; each emit unblocks one waiting CLI `review` call.
+ * Review session host. Owns the HTTP event broker; the persisted session and diff
+ * are keyed by the repoRoot the CLI sends, so a single VS Code window can review
+ * ANY project's worktree — not only the one it happens to have open. The form
+ * calls the emit* methods when the human acts; each emit unblocks one waiting CLI.
  */
 export class ReviewHost {
   readonly events = new HttpReviewHost();
-  private readonly store: FsSessionStore;
-  private readonly diff: GitDiffProvider;
-  private lastDiff: DiffFile[] = [];
   /** Thread ids awaiting an agent reply (Ask agent) — drives the form's loader. */
   private readonly pending = new Set<string>();
+  /** The review currently shown in the form (the last repoRoot a CLI asked for). */
+  private current?: ReviewCtx;
+
+  constructor(
+    private readonly onState: (s: SessionState, diff: DiffFile[]) => void,
+    private readonly onOpen: (s: SessionState, diff: DiffFile[]) => void,
+  ) {
+    this.events.onPush((wt, repoRoot, push) => {
+      void this.handlePush(this.ctx(repoRoot, wt), push);
+    });
+    // The form appears when the agent runs `review` — not on activation/reload.
+    this.events.onReview((wt, repoRoot) => {
+      void this.openForReview(this.ctx(repoRoot, wt));
+    });
+  }
 
   isPending(threadId: string): boolean {
     return this.pending.has(threadId);
@@ -29,73 +49,77 @@ export class ReviewHost {
     }, 0);
   }
 
-  constructor(
-    private readonly repoRoot: string,
-    private readonly worktreeId: string,
-    private readonly onState: (s: SessionState, diff: DiffFile[]) => void,
-    private readonly onOpen: (s: SessionState, diff: DiffFile[]) => void,
-    baseRef = "main",
-  ) {
-    this.store = new FsSessionStore(repoRoot);
-    this.diff = new GitDiffProvider(repoRoot, baseRef);
-    this.events.onPush((_wt, push) => {
-      void this.handlePush(push);
-    });
-    // Open the form whenever the agent connects with `review` — this is when the
-    // form appears, not on activation/reload.
-    this.events.onReview(() => {
-      void this.openForReview();
-    });
+  /** Get (or build) the session context for a repoRoot, making it the active review. */
+  private ctx(repoRoot: string, worktreeId: string): ReviewCtx {
+    if (this.current?.repoRoot !== repoRoot) {
+      this.current = {
+        repoRoot,
+        worktreeId,
+        store: new FsSessionStore(repoRoot),
+        diff: new GitDiffProvider(repoRoot),
+        lastDiff: [],
+      };
+    }
+    return this.current;
+  }
+
+  /** Start the HTTP broker and return its port (the extension registers it globally). */
+  async start(): Promise<number> {
+    return this.events.start();
+  }
+
+  async stop(): Promise<void> {
+    return this.events.stop();
   }
 
   /** Open the form for a `review` call: re-render the open round, or start a fresh one. */
-  private async openForReview(): Promise<void> {
-    const cur = await this.store.load(this.worktreeId);
+  private async openForReview(c: ReviewCtx): Promise<void> {
+    const cur = await c.store.load(c.worktreeId);
     if (cur?.status === "open") {
-      if (this.lastDiff.length === 0) this.lastDiff = await this.diff.diff(this.worktreeId);
-      this.onOpen(cur, this.lastDiff);
+      if (c.lastDiff.length === 0) c.lastDiff = await c.diff.diff(c.worktreeId);
+      this.onOpen(cur, c.lastDiff);
     } else {
-      const s = await this.newRound();
-      this.onOpen(s, this.lastDiff);
+      const s = await this.newRound(c);
+      this.onOpen(s, c.lastDiff);
     }
   }
 
+  /** Recompute the diff and open a fresh review round (collapsing unchanged viewed files). */
+  private async newRound(c: ReviewCtx): Promise<SessionState> {
+    const prev = await c.store.load(c.worktreeId);
+    c.lastDiff = await c.diff.diff(c.worktreeId);
+    const s = startRound(prev, c.worktreeId, c.lastDiff);
+    await c.store.save(s);
+    return s;
+  }
+
   /** Apply an agent push: append replies/comments, clear pending loaders, persist, re-render. */
-  private async handlePush(push: PushPayload): Promise<void> {
-    const cur = await this.store.load(this.worktreeId);
+  private async handlePush(c: ReviewCtx, push: PushPayload): Promise<void> {
+    const cur = await c.store.load(c.worktreeId);
     if (!cur) return;
     let n = this.maxId(cur.threads);
     const next = applyPush(cur, push, () => `t${++n}`);
     for (const r of push.replies) this.pending.delete(r.threadId);
-    await this.store.save(next);
-    this.onState(next, this.lastDiff);
-  }
-
-  async start(): Promise<void> {
-    const port = await this.events.start();
-    const p = join(this.repoRoot, ".claude", "revizorro", "port");
-    mkdirSync(dirname(p), { recursive: true });
-    writeFileSync(p, String(port), "utf8");
-    // Don't open the form on activation — only when the agent runs `review`.
-  }
-
-  /** Recompute the diff and open a fresh review round (collapsing unchanged viewed files). */
-  async newRound(): Promise<SessionState> {
-    const prev = await this.store.load(this.worktreeId);
-    this.lastDiff = await this.diff.diff(this.worktreeId);
-    const s = startRound(prev, this.worktreeId, this.lastDiff);
-    await this.store.save(s);
-    return s;
+    await c.store.save(next);
+    // An agent push during an OPEN review must (re)show the form — the human may
+    // have closed or reloaded the window (e.g. mid-Clarify). A decided session
+    // (approved/changes_requested) stays closed: onState only re-renders if open.
+    if (next.status === "open") this.onOpen(next, c.lastDiff);
+    else this.onState(next, c.lastDiff);
   }
 
   approve(): void {
-    void this.finalize("approved");
-    this.events.emit(this.worktreeId, { type: "decision", verdict: "approved", comments: [] });
+    const c = this.current;
+    if (!c) return;
+    void this.finalize(c, "approved");
+    this.events.emit(c.worktreeId, { type: "decision", verdict: "approved", comments: [] });
   }
 
   /** Request changes: the agent fixes every open comment and re-submits a new round. */
   async requestChanges(): Promise<void> {
-    const s = await this.finalize("changes_requested");
+    const c = this.current;
+    if (!c) return;
+    const s = await this.finalize(c, "changes_requested");
     const comments = s.threads
       .filter((t) => !t.resolved)
       .map((t) => ({
@@ -105,20 +129,21 @@ export class ReviewHost {
         range: t.range,
         body: t.messages.map((m) => m.body).join("\n"),
       }));
-    this.events.emit(this.worktreeId, { type: "decision", verdict: "changes_requested", comments });
+    this.events.emit(c.worktreeId, { type: "decision", verdict: "changes_requested", comments });
   }
 
   /**
-   * Clarify: the agent answers every open thread (no code changes). The form
-   * stays open; open threads are marked pending so the loaders show until each
-   * is answered.
+   * Clarify: the agent answers every open thread (no code changes). The form stays
+   * open; open threads are marked pending so the loaders show until each is answered.
    */
   async clarify(): Promise<void> {
-    const cur = await this.store.load(this.worktreeId);
+    const c = this.current;
+    if (!c) return;
+    const cur = await c.store.load(c.worktreeId);
     if (!cur) return;
     const open = cur.threads.filter((t) => !t.resolved);
     for (const t of open) this.pending.add(t.id);
-    this.onState(cur, this.lastDiff);
+    this.onState(cur, c.lastDiff);
     const comments = open.map((t) => ({
       threadId: t.id,
       file: t.file,
@@ -126,12 +151,12 @@ export class ReviewHost {
       range: t.range,
       body: t.messages.map((m) => m.body).join("\n"),
     }));
-    this.events.emit(this.worktreeId, { type: "decision", verdict: "clarify", comments });
+    this.events.emit(c.worktreeId, { type: "decision", verdict: "clarify", comments });
   }
 
   /**
-   * Human opens a new thread on a line. `ask=true` wakes the agent for an
-   * immediate reply (question event); otherwise it is a passive comment.
+   * Human opens a new thread on a line. `ask=true` wakes the agent for an immediate
+   * reply (question event); otherwise it is a passive comment.
    */
   async addHumanComment(
     file: string,
@@ -140,7 +165,9 @@ export class ReviewHost {
     ask = false,
     side: Side = "new",
   ): Promise<void> {
-    const cur = await this.store.load(this.worktreeId);
+    const c = this.current;
+    if (!c) return;
+    const cur = await c.store.load(c.worktreeId);
     if (!cur) return;
     const threadId = `t${this.maxId(cur.threads) + 1}`;
     const next: SessionState = {
@@ -151,9 +178,9 @@ export class ReviewHost {
       ],
     };
     if (ask) this.pending.add(threadId);
-    await this.store.save(next);
-    this.onState(next, this.lastDiff);
-    this.events.emit(this.worktreeId, {
+    await c.store.save(next);
+    this.onState(next, c.lastDiff);
+    this.events.emit(c.worktreeId, {
       type: ask ? "question" : "comment",
       threadId,
       file,
@@ -165,7 +192,9 @@ export class ReviewHost {
 
   /** Human replies inside an existing thread. `ask=true` wakes the agent now. */
   async addHumanReply(threadId: string, body: string, ask = false): Promise<void> {
-    const cur = await this.store.load(this.worktreeId);
+    const c = this.current;
+    if (!c) return;
+    const cur = await c.store.load(c.worktreeId);
     if (!cur) return;
     const thread = cur.threads.find((t) => t.id === threadId);
     if (!thread) return;
@@ -176,12 +205,13 @@ export class ReviewHost {
       ),
     };
     if (ask) this.pending.add(threadId);
-    await this.store.save(next);
-    this.onState(next, this.lastDiff);
-    this.events.emit(this.worktreeId, {
+    await c.store.save(next);
+    this.onState(next, c.lastDiff);
+    this.events.emit(c.worktreeId, {
       type: ask ? "question" : "comment",
       threadId,
       file: thread.file,
+      side: thread.side,
       range: thread.range,
       body,
     });
@@ -189,45 +219,50 @@ export class ReviewHost {
 
   /** Edit one of the human's own messages in a thread; persist and re-render. */
   async editMessage(threadId: string, index: number, body: string): Promise<void> {
-    const cur = await this.store.load(this.worktreeId);
+    const c = this.current;
+    if (!c) return;
+    const cur = await c.store.load(c.worktreeId);
     if (!cur) return;
     const next = editMessage(cur, threadId, index, body);
-    await this.store.save(next);
-    this.onState(next, this.lastDiff);
+    await c.store.save(next);
+    this.onState(next, c.lastDiff);
   }
 
   /** Mark a thread resolved/unresolved; persist and re-render. Resolved threads drop from the next round. */
   async resolveThread(threadId: string, resolved: boolean): Promise<void> {
-    const cur = await this.store.load(this.worktreeId);
+    const c = this.current;
+    if (!c) return;
+    const cur = await c.store.load(c.worktreeId);
     if (!cur) return;
     const next: SessionState = {
       ...cur,
       threads: cur.threads.map((t) => (t.id === threadId ? { ...t, resolved } : t)),
     };
-    await this.store.save(next);
-    this.onState(next, this.lastDiff);
+    await c.store.save(next);
+    this.onState(next, c.lastDiff);
   }
 
   /** Human marks/unmarks a file as viewed; persist and re-render (no event). */
   async setViewed(file: string, viewed: boolean): Promise<void> {
-    const cur = await this.store.load(this.worktreeId);
+    const c = this.current;
+    if (!c) return;
+    const cur = await c.store.load(c.worktreeId);
     if (!cur?.files[file]) return;
     const next: SessionState = {
       ...cur,
       files: { ...cur.files, [file]: { ...cur.files[file], viewed } },
     };
-    await this.store.save(next);
-    this.onState(next, this.lastDiff);
+    await c.store.save(next);
+    this.onState(next, c.lastDiff);
   }
 
-  async stop(): Promise<void> {
-    return this.events.stop();
-  }
-
-  private async finalize(verdict: "approved" | "changes_requested"): Promise<SessionState> {
-    const cur = (await this.store.load(this.worktreeId)) ?? (await this.newRound());
+  private async finalize(
+    c: ReviewCtx,
+    verdict: "approved" | "changes_requested",
+  ): Promise<SessionState> {
+    const cur = (await c.store.load(c.worktreeId)) ?? (await this.newRound(c));
     const next = applyDecision(cur, verdict);
-    await this.store.save(next);
+    await c.store.save(next);
     return next;
   }
 }

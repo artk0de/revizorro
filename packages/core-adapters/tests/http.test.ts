@@ -11,7 +11,7 @@ describe("HTTP transport contract", () => {
     host = new HttpReviewHost();
     const port = await host.start();
     const client = new HttpReviewClient(port);
-    const pending = client.review("wt1");
+    const pending = client.review("wt1", "/repo");
     setTimeout(() => {
       host.emit("wt1", { type: "decision", verdict: "approved", comments: [] });
     }, 20);
@@ -24,10 +24,10 @@ describe("HTTP transport contract", () => {
     host.onReview((wt) => reviews.push(wt));
     host.onPush((wt) => host.emit(wt, { type: "idle" }));
     const client = new HttpReviewClient(port);
-    const pending = client.review("wt1");
+    const pending = client.review("wt1", "/repo");
     setTimeout(() => host.emit("wt1", { type: "idle" }), 20);
     await pending;
-    await client.review("wt1", {
+    await client.review("wt1", "/repo", {
       replies: [],
       comments: [{ file: "a.ts", range: { startLine: 1, endLine: 1 }, body: "x" }],
     });
@@ -37,14 +37,18 @@ describe("HTTP transport contract", () => {
     host = new HttpReviewHost();
     const port = await host.start();
     const seen: unknown[] = [];
-    host.onPush((wt, push) => {
-      seen.push({ wt, push });
+    host.onPush((wt, repoRoot, push) => {
+      seen.push({ wt, repoRoot, push });
       host.emit(wt, { type: "idle" });
     });
     const client = new HttpReviewClient(port);
-    await client.review("wt1", { replies: [{ threadId: "t1", body: "ack" }], comments: [] });
+    await client.review("wt1", "/repo", { replies: [{ threadId: "t1", body: "ack" }], comments: [] });
     expect(seen).toEqual([
-      { wt: "wt1", push: { replies: [{ threadId: "t1", body: "ack" }], comments: [] } },
+      {
+        wt: "wt1",
+        repoRoot: "/repo",
+        push: { replies: [{ threadId: "t1", body: "ack" }], comments: [] },
+      },
     ]);
   });
 });

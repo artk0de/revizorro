@@ -8,8 +8,8 @@ export class HttpReviewClient implements ReviewTransport {
     private readonly host = "127.0.0.1",
   ) {}
 
-  async review(worktreeId: string, push?: PushPayload): Promise<ReviewEvent> {
-    const payload = JSON.stringify({ worktreeId, push });
+  async review(worktreeId: string, repoRoot: string, push?: PushPayload): Promise<ReviewEvent> {
+    const payload = JSON.stringify({ worktreeId, repoRoot, push });
     return new Promise((resolve, reject) => {
       const req = request(
         {

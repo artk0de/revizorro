@@ -7,15 +7,15 @@ type Waiter = (e: ReviewEvent) => void;
 export class HttpReviewHost {
   private server?: Server;
   private readonly waiters = new Map<string, Waiter[]>();
-  private onPushReceived?: (worktreeId: string, push: PushPayload) => void;
-  private onReviewRequest?: (worktreeId: string) => void;
+  private onPushReceived?: (worktreeId: string, repoRoot: string, push: PushPayload) => void;
+  private onReviewRequest?: (worktreeId: string, repoRoot: string) => void;
 
-  onPush(cb: (worktreeId: string, push: PushPayload) => void): void {
+  onPush(cb: (worktreeId: string, repoRoot: string, push: PushPayload) => void): void {
     this.onPushReceived = cb;
   }
 
-  /** Fires on every `review` request — lets the host re-open/refresh a closed form. */
-  onReview(cb: (worktreeId: string) => void): void {
+  /** Fires on every `review` request — lets the host review the requested repoRoot. */
+  onReview(cb: (worktreeId: string, repoRoot: string) => void): void {
     this.onReviewRequest = cb;
   }
 
@@ -37,8 +37,9 @@ export class HttpReviewHost {
         body += chunk.toString();
       });
       req.on("end", () => {
-        const { worktreeId, push } = JSON.parse(body || "{}") as {
+        const { worktreeId, repoRoot, push } = JSON.parse(body || "{}") as {
           worktreeId: string;
+          repoRoot: string;
           push?: unknown;
         };
         // Register the response waiter BEFORE invoking onPushReceived: a push handler may
@@ -52,9 +53,9 @@ export class HttpReviewHost {
         // A push is a reply delivery; a plain review is a request to (re)open the
         // form — so a late push can never resurrect a closed form.
         if (push === undefined) {
-          this.onReviewRequest?.(worktreeId);
+          this.onReviewRequest?.(worktreeId, repoRoot);
         } else {
-          this.onPushReceived?.(worktreeId, PushPayload.parse(push));
+          this.onPushReceived?.(worktreeId, repoRoot, PushPayload.parse(push));
         }
       });
     });

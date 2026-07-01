@@ -4,6 +4,7 @@ import type { PushPayload } from "@revizorro/protocol";
 export interface CliDeps {
   transport: ReviewTransport;
   worktreeId: string;
+  repoRoot: string;
   readPush: (path: string) => PushPayload;
 }
 
@@ -25,6 +26,6 @@ export async function runReview(
   }
   const pushIdx = argv.indexOf("--push");
   const push = pushIdx >= 0 ? deps.readPush(argv[pushIdx + 1]) : undefined;
-  const event = await deps.transport.review(deps.worktreeId, push);
+  const event = await deps.transport.review(deps.worktreeId, deps.repoRoot, push);
   return { stdout: JSON.stringify(event), exitCode: 0 };
 }
