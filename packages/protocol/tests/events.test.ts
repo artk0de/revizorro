@@ -22,4 +22,23 @@ describe("ReviewEvent", () => {
   it("parses idle", () => {
     expect(ReviewEvent.parse({ type: "idle" }).type).toBe("idle");
   });
+  it("defaults a comment's side to new and accepts old", () => {
+    const newSide = ReviewEvent.parse({
+      type: "comment",
+      threadId: "t1",
+      file: "a.ts",
+      range: { startLine: 1, endLine: 1 },
+      body: "note",
+    });
+    const oldSide = ReviewEvent.parse({
+      type: "comment",
+      threadId: "t2",
+      file: "a.ts",
+      side: "old",
+      range: { startLine: 9, endLine: 9 },
+      body: "removed here",
+    });
+    expect(newSide.type === "comment" && newSide.side).toBe("new");
+    expect(oldSide.type === "comment" && oldSide.side).toBe("old");
+  });
 });

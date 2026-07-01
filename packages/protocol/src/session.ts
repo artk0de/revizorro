@@ -1,11 +1,12 @@
 import { z } from "zod";
-import { FileRange } from "./range.js";
+import { FileRange, Side } from "./range.js";
 
 export const FileViewState = z.object({ viewed: z.boolean(), contentHash: z.string() });
 export const ThreadMessage = z.object({ author: z.enum(["human", "agent"]), body: z.string() });
 export const Thread = z.object({
   id: z.string(),
   file: z.string(),
+  side: Side.default("new"),
   range: FileRange,
   messages: z.array(ThreadMessage).min(1),
   resolved: z.boolean().default(false),

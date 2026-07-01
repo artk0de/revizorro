@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { FileRange } from "./range.js";
+import { FileRange, Side } from "./range.js";
 
 const threadAnchor = {
   threadId: z.string(),
   file: z.string(),
+  side: Side.default("new"),
   range: FileRange,
   body: z.string(),
 };
