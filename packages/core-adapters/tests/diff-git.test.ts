@@ -46,4 +46,19 @@ describe("GitDiffProvider", () => {
     const b = files.find((f) => f.path === "b.ts")!;
     expect(b.patch).toContain("+export const b = 3;");
   });
+  it("auto-detects the default branch when no base ref is given (master, no main)", async () => {
+    const mrepo = mkdtempSync(join(tmpdir(), "rvz-master-"));
+    git(mrepo, "init", "-q", "-b", "master");
+    git(mrepo, "config", "user.email", "t@t");
+    git(mrepo, "config", "user.name", "t");
+    writeFileSync(join(mrepo, "a.ts"), "export const a = 1;\n");
+    git(mrepo, "add", ".");
+    git(mrepo, "commit", "-qm", "base");
+    git(mrepo, "checkout", "-qb", "feature");
+    writeFileSync(join(mrepo, "a.ts"), "export const a = 2;\n");
+    git(mrepo, "commit", "-aqm", "change a");
+    // No explicit base ref → provider must fall back to master (there is no main).
+    const files = await new GitDiffProvider(mrepo).diff("wt");
+    expect(files.map((f) => f.path)).toContain("a.ts");
+  });
 });

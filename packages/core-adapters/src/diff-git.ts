@@ -10,8 +10,33 @@ const exec = promisify(execFile);
 export class GitDiffProvider implements DiffProvider {
   constructor(
     private readonly repoRoot: string,
-    private readonly baseRef = "main",
+    private readonly baseRef?: string,
   ) {}
+
+  /**
+   * Base branch to diff against. Explicit ref wins; else $REVIZORRO_BASE; else the
+   * repo's own default branch (origin/HEAD → main → master). Hardcoding "main"
+   * broke repos whose default is "master" (`git merge-base main HEAD` → fatal).
+   */
+  private async resolveBase(): Promise<string> {
+    if (this.baseRef) return this.baseRef;
+    if (process.env.REVIZORRO_BASE) return process.env.REVIZORRO_BASE;
+    try {
+      const head = (await this.git("symbolic-ref", "--short", "refs/remotes/origin/HEAD")).trim();
+      if (head) return head;
+    } catch {
+      // no origin/HEAD configured
+    }
+    for (const candidate of ["main", "master"]) {
+      try {
+        await this.git("rev-parse", "--verify", "--quiet", candidate);
+        return candidate;
+      } catch {
+        // candidate branch absent
+      }
+    }
+    return "main";
+  }
 
   private async git(...args: string[]): Promise<string> {
     const { stdout } = await exec("git", args, {
@@ -31,7 +56,7 @@ export class GitDiffProvider implements DiffProvider {
   }
 
   async diff(_worktreeId: string): Promise<DiffFile[]> {
-    const base = (await this.git("merge-base", this.baseRef, "HEAD")).trim();
+    const base = (await this.git("merge-base", await this.resolveBase(), "HEAD")).trim();
     const committed = await this.git("diff", "--name-only", base, "HEAD");
     const uncommitted = await this.git("diff", "--name-only", "HEAD");
     const untrackedOut = await this.git("ls-files", "--others", "--exclude-standard");
