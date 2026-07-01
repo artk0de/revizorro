@@ -46,9 +46,11 @@
     "@revizorro/core": "*",
     "@revizorro/core-adapters": "*",
     "@revizorro/protocol": "*",
-    "highlight.js": "^11.11.1"
+    "highlight.js": "^11.11.1",
+    "markdown-it": "^14.2.0"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
     "@types/vscode": "^1.90.0",
     "@vscode/vsce": "^2.31.0",
     "esbuild": "^0.21.5"

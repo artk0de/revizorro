@@ -13,6 +13,7 @@ import go from "highlight.js/lib/languages/go";
 import rust from "highlight.js/lib/languages/rust";
 import java from "highlight.js/lib/languages/java";
 import sql from "highlight.js/lib/languages/sql";
+import MarkdownIt from "markdown-it";
 
 hljs.registerLanguage("typescript", typescript);
 hljs.registerLanguage("javascript", javascript);
@@ -134,6 +135,17 @@ const EXT_LANG: Record<string, string> = {
   markdown: "markdown",
   yml: "yaml",
   yaml: "yaml",
+  rb: "ruby",
+  rake: "ruby",
+  gemspec: "ruby",
+  ru: "ruby",
+  py: "python",
+  pyi: "python",
+  pyw: "python",
+  go: "go",
+  rs: "rust",
+  java: "java",
+  sql: "sql",
 };
 function langFor(path: string): string | null {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
@@ -151,25 +163,18 @@ function hl(text: string, lang: string | null): string {
   }
 }
 
-// Render a comment body: plain text plus fenced ```lang code blocks (highlighted).
-function renderBody(body: string, fallbackLang: string | null): HTMLElement {
+// Full markdown for comment bodies. html:false escapes raw HTML (XSS-safe in the
+// webview); fenced ```lang blocks are highlighted through hljs; bare URLs linkify.
+const md = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: true,
+  highlight: (code, lang) => hl(code, lang ? (EXT_LANG[lang] ?? lang) : null),
+});
+
+function renderBody(body: string): HTMLElement {
   const wrap = el("div", "msg-body");
-  const segments = body.split("```");
-  segments.forEach((seg, i) => {
-    if (i % 2 === 0) {
-      if (seg) wrap.append(document.createTextNode(seg));
-      return;
-    }
-    const nl = seg.indexOf("\n");
-    const first = nl >= 0 ? seg.slice(0, nl).trim() : "";
-    const lang = first && /^[\w+-]+$/.test(first) ? first.toLowerCase() : null;
-    const code = lang !== null ? seg.slice(nl + 1) : seg;
-    const pre = el("pre", "code-block");
-    const codeEl = document.createElement("code");
-    codeEl.innerHTML = hl(code.replace(/\n+$/, ""), lang ?? fallbackLang);
-    pre.append(codeEl);
-    wrap.append(pre);
-  });
+  wrap.innerHTML = md.render(body);
   return wrap;
 }
 
@@ -283,7 +288,7 @@ function inlineBody(f: FileView, lines: Line[], lang: string | null): HTMLElemen
     row.append(gut, no, codeSpan(l.text, lang));
     body.append(row);
     const th = l.newNo !== undefined ? threadsByLine[l.newNo] : undefined;
-    if (th) for (const t of th) body.append(renderThread(t, lang));
+    if (th) for (const t of th) body.append(renderThread(t));
   }
   return body;
 }
@@ -352,7 +357,7 @@ function splitBody(f: FileView, lines: Line[], lang: string | null): HTMLElement
     const th = line !== undefined ? (side === "old" ? oldByLine : newByLine)[line] : undefined;
     if (!th) return;
     for (const t of th) {
-      const box = renderThread(t, lang);
+      const box = renderThread(t);
       box.classList.add(side);
       grid.append(box);
     }
@@ -396,7 +401,7 @@ function avatar(author: string): HTMLElement {
   return a;
 }
 
-function renderThread(t: FileView["threads"][number], lang: string | null): HTMLElement {
+function renderThread(t: FileView["threads"][number]): HTMLElement {
   const box = el("div", `thread${t.resolved ? " resolved" : ""}`);
   const bar = el("div", "thread-bar");
   const caret = el("span", "tcaret", t.resolved ? "▸" : "▾");
@@ -428,7 +433,7 @@ function renderThread(t: FileView["threads"][number], lang: string | null): HTML
     const msg = el("div", "msg");
     const head = el("div", "msg-head");
     head.append(avatar(m.author), el("span", "who", m.author === "agent" ? "revizorro" : "you"));
-    const bodyEl = renderBody(m.body, lang);
+    const bodyEl = renderBody(m.body);
     const startEdit = () => {
       if (msg.querySelector(".msg-edit")) return;
       const editor = el("div", "msg-edit");
