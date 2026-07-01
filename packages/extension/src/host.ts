@@ -1,8 +1,8 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { HttpReviewHost, FsSessionStore, GitDiffProvider } from "@revizorro/core-adapters";
-import { startRound, applyPush, applyDecision, type DiffFile } from "@revizorro/core";
-import type { SessionState, FileRange, PushPayload } from "@revizorro/protocol";
+import { startRound, applyPush, applyDecision, editMessage, type DiffFile } from "@revizorro/core";
+import type { SessionState, FileRange, PushPayload, Side } from "@revizorro/protocol";
 
 /**
  * Long-lived review session host. Owns the HTTP event broker, the persisted
@@ -33,6 +33,7 @@ export class ReviewHost {
     private readonly repoRoot: string,
     private readonly worktreeId: string,
     private readonly onState: (s: SessionState, diff: DiffFile[]) => void,
+    private readonly onOpen: (s: SessionState, diff: DiffFile[]) => void,
     baseRef = "main",
   ) {
     this.store = new FsSessionStore(repoRoot);
@@ -52,9 +53,10 @@ export class ReviewHost {
     const cur = await this.store.load(this.worktreeId);
     if (cur?.status === "open") {
       if (this.lastDiff.length === 0) this.lastDiff = await this.diff.diff(this.worktreeId);
-      this.onState(cur, this.lastDiff);
+      this.onOpen(cur, this.lastDiff);
     } else {
-      await this.newRound();
+      const s = await this.newRound();
+      this.onOpen(s, this.lastDiff);
     }
   }
 
@@ -83,7 +85,6 @@ export class ReviewHost {
     this.lastDiff = await this.diff.diff(this.worktreeId);
     const s = startRound(prev, this.worktreeId, this.lastDiff);
     await this.store.save(s);
-    this.onState(s, this.lastDiff);
     return s;
   }
 
@@ -100,6 +101,7 @@ export class ReviewHost {
       .map((t) => ({
         threadId: t.id,
         file: t.file,
+        side: t.side,
         range: t.range,
         body: t.messages.map((m) => m.body).join("\n"),
       }));
@@ -120,6 +122,7 @@ export class ReviewHost {
     const comments = open.map((t) => ({
       threadId: t.id,
       file: t.file,
+      side: t.side,
       range: t.range,
       body: t.messages.map((m) => m.body).join("\n"),
     }));
@@ -130,7 +133,13 @@ export class ReviewHost {
    * Human opens a new thread on a line. `ask=true` wakes the agent for an
    * immediate reply (question event); otherwise it is a passive comment.
    */
-  async addHumanComment(file: string, range: FileRange, body: string, ask = false): Promise<void> {
+  async addHumanComment(
+    file: string,
+    range: FileRange,
+    body: string,
+    ask = false,
+    side: Side = "new",
+  ): Promise<void> {
     const cur = await this.store.load(this.worktreeId);
     if (!cur) return;
     const threadId = `t${this.maxId(cur.threads) + 1}`;
@@ -138,7 +147,7 @@ export class ReviewHost {
       ...cur,
       threads: [
         ...cur.threads,
-        { id: threadId, file, range, messages: [{ author: "human", body }], resolved: false },
+        { id: threadId, file, side, range, messages: [{ author: "human", body }], resolved: false },
       ],
     };
     if (ask) this.pending.add(threadId);
@@ -148,6 +157,7 @@ export class ReviewHost {
       type: ask ? "question" : "comment",
       threadId,
       file,
+      side,
       range,
       body,
     });
@@ -175,6 +185,15 @@ export class ReviewHost {
       range: thread.range,
       body,
     });
+  }
+
+  /** Edit one of the human's own messages in a thread; persist and re-render. */
+  async editMessage(threadId: string, index: number, body: string): Promise<void> {
+    const cur = await this.store.load(this.worktreeId);
+    if (!cur) return;
+    const next = editMessage(cur, threadId, index, body);
+    await this.store.save(next);
+    this.onState(next, this.lastDiff);
   }
 
   /** Mark a thread resolved/unresolved; persist and re-render. Resolved threads drop from the next round. */

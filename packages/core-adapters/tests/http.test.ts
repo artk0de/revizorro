@@ -17,6 +17,22 @@ describe("HTTP transport contract", () => {
     }, 20);
     expect(await pending).toEqual({ type: "decision", verdict: "approved", comments: [] });
   });
+  it("fires onReview for a plain review but not for a push delivery", async () => {
+    host = new HttpReviewHost();
+    const port = await host.start();
+    const reviews: string[] = [];
+    host.onReview((wt) => reviews.push(wt));
+    host.onPush((wt) => host.emit(wt, { type: "idle" }));
+    const client = new HttpReviewClient(port);
+    const pending = client.review("wt1");
+    setTimeout(() => host.emit("wt1", { type: "idle" }), 20);
+    await pending;
+    await client.review("wt1", {
+      replies: [],
+      comments: [{ file: "a.ts", range: { startLine: 1, endLine: 1 }, body: "x" }],
+    });
+    expect(reviews).toEqual(["wt1"]);
+  });
   it("surfaces a client push to the host", async () => {
     host = new HttpReviewHost();
     const port = await host.start();

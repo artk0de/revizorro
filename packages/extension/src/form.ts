@@ -20,8 +20,14 @@ export class ReviewForm {
     private readonly mediaDir: string,
   ) {}
 
-  render(state: SessionState | null, diff: DiffFile[]): void {
+  /** Open (creating if needed) the form, then render the current state. */
+  open(state: SessionState | null, diff: DiffFile[]): void {
     this.ensurePanel();
+    this.render(state, diff);
+  }
+
+  /** Render an update into the EXISTING panel — never resurrects a closed form. */
+  render(state: SessionState | null, diff: DiffFile[]): void {
     if (!this.panel || !state) return;
     const files = diff.map((d) => ({
       path: d.path,
@@ -33,6 +39,7 @@ export class ReviewForm {
         .map((t) => ({
           id: t.id,
           line: t.range.startLine,
+          side: t.side,
           resolved: t.resolved,
           pending: this.host.isPending(t.id),
           messages: t.messages,
@@ -67,9 +74,11 @@ export class ReviewForm {
       (m: {
         type: string;
         file?: string;
+        side?: "old" | "new";
         viewed?: boolean;
         startLine?: number;
         endLine?: number;
+        index?: number;
         body?: string;
         threadId?: string;
         resolved?: boolean;
@@ -104,9 +113,12 @@ export class ReviewForm {
             { startLine: m.startLine, endLine: m.endLine },
             m.body,
             m.type === "ask",
+            m.side ?? "new",
           );
         } else if ((m.type === "reply" || m.type === "askReply") && m.threadId && m.body) {
           void this.host.addHumanReply(m.threadId, m.body, m.type === "askReply");
+        } else if (m.type === "editMessage" && m.threadId && m.index !== undefined && m.body) {
+          void this.host.editMessage(m.threadId, m.index, m.body);
         } else if (m.type === "resolve" && m.threadId) {
           void this.host.resolveThread(m.threadId, !!m.resolved);
         }

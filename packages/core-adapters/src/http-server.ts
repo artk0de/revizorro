@@ -7,16 +7,16 @@ type Waiter = (e: ReviewEvent) => void;
 export class HttpReviewHost {
   private server?: Server;
   private readonly waiters = new Map<string, Waiter[]>();
-  private pushCb?: (worktreeId: string, push: PushPayload) => void;
-  private reviewCb?: (worktreeId: string) => void;
+  private onPushReceived?: (worktreeId: string, push: PushPayload) => void;
+  private onReviewRequest?: (worktreeId: string) => void;
 
   onPush(cb: (worktreeId: string, push: PushPayload) => void): void {
-    this.pushCb = cb;
+    this.onPushReceived = cb;
   }
 
   /** Fires on every `review` request — lets the host re-open/refresh a closed form. */
   onReview(cb: (worktreeId: string) => void): void {
-    this.reviewCb = cb;
+    this.onReviewRequest = cb;
   }
 
   emit(worktreeId: string, event: ReviewEvent): void {
@@ -41,7 +41,7 @@ export class HttpReviewHost {
           worktreeId: string;
           push?: unknown;
         };
-        // Register the response waiter BEFORE invoking pushCb: a push handler may
+        // Register the response waiter BEFORE invoking onPushReceived: a push handler may
         // synchronously emit an event, which must find a waiting client.
         const list = this.waiters.get(worktreeId) ?? [];
         list.push((event) => {
@@ -49,8 +49,13 @@ export class HttpReviewHost {
           res.end(JSON.stringify(event));
         });
         this.waiters.set(worktreeId, list);
-        this.reviewCb?.(worktreeId);
-        if (push !== undefined && this.pushCb) this.pushCb(worktreeId, PushPayload.parse(push));
+        // A push is a reply delivery; a plain review is a request to (re)open the
+        // form — so a late push can never resurrect a closed form.
+        if (push === undefined) {
+          this.onReviewRequest?.(worktreeId);
+        } else {
+          this.onPushReceived?.(worktreeId, PushPayload.parse(push));
+        }
       });
     });
     this.server = server;

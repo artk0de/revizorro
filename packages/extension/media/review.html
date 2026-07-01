@@ -39,10 +39,55 @@
       button:hover { filter: brightness(1.15); }
       button:active { filter: brightness(0.95); }
       button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-      button.approve { background: var(--vscode-testing-iconPassed); color: #000; }
-      button.changes { background: var(--vscode-testing-iconFailed); color: #000; }
+      button.approve { background: var(--vscode-testing-iconPassed); color: #fff; }
+      button.changes { background: var(--vscode-testing-iconFailed); color: #fff; }
       button.clarify { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+      /* toolbar decision actions — modern, font-relative sizing */
+      .toolbar .act {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4em;
+        font-size: 0.95em;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        padding: 0.45em 1em;
+        border-radius: 6px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+      }
+      .toolbar .act:hover { filter: brightness(1.1); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.28); }
+      .toolbar .act:active { filter: brightness(0.93); box-shadow: none; }
+      /* custom hover hints — reliable in the webview (native title clips at the panel edge) */
+      .tipbtn { position: relative; }
+      .tipbtn::after {
+        content: attr(data-tip);
+        position: absolute;
+        top: calc(100% + 7px);
+        left: 50%;
+        transform: translateX(-50%);
+        width: max-content;
+        max-width: 16em;
+        background: var(--vscode-editorHoverWidget-background, #252526);
+        color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+        border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-panel-border));
+        padding: 0.4em 0.6em;
+        border-radius: 5px;
+        font-size: 0.8em;
+        font-weight: 400;
+        line-height: 1.4;
+        white-space: normal;
+        text-align: left;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.12s ease 0.25s;
+        z-index: 60;
+      }
+      .tipbtn:hover::after { opacity: 1; }
+      .tipbtn.tip-left::after { left: 0; transform: none; }
+      .tipbtn.tip-right::after { left: auto; right: 0; transform: none; }
       .toploader { font-size: 0.82em; opacity: 0.9; font-style: italic; }
+      #toggle .on { font-weight: 700; }
+      #toggle span:not(.on) { opacity: 0.5; }
       .file {
         border: 1px solid var(--vscode-panel-border);
         border-radius: 4px;
@@ -96,61 +141,67 @@
       .ln.del .txt::before { content: "−"; opacity: 0.5; }
       .ln.ctx .txt::before { content: " "; }
       .ln.hunk { background: var(--vscode-editorGroupHeader-tabsBackground); opacity: 0.7; padding-left: 0.5em; }
-      /* split view */
-      .srow { display: flex; align-items: stretch; }
-      .srow .side {
-        flex: 1 1 50%;
-        display: flex;
-        white-space: pre;
-        border-left: 1px solid var(--vscode-panel-border);
-        min-width: 0;
-        overflow-x: auto;
-        line-height: 1.5;
+      /* split view — single CSS grid; code columns soft-wrap (GitHub/GitLab style) */
+      .diff.split { overflow-x: hidden; }
+      .splitgrid {
+        display: grid;
+        grid-template-columns:
+          minmax(2.4em, max-content) minmax(0, 1fr) minmax(2.4em, max-content) minmax(0, 1fr);
+        min-width: 100%;
+        align-items: stretch;
       }
-      .srow .side .no {
-        width: 3em;
-        text-align: right;
+      .srow { display: contents; }
+      .splitgrid > .ghunk { grid-column: 1 / -1; }
+      /* threads/composers take a FULL grid row (so auto-flow stays clean) but fill
+         their own half up to the divider: old → left, new → right */
+      .splitgrid > .thread,
+      .splitgrid > .compose {
+        grid-column: 1 / -1;
+        width: calc(50% - 0.6rem);
+        box-sizing: border-box;
+        margin: 0.4rem 0.6rem;
+      }
+      .splitgrid > .thread.old,
+      .splitgrid > .compose.old { margin-right: auto; }
+      .splitgrid > .thread.new,
+      .splitgrid > .compose.new { margin-left: auto; }
+      .ghunk {
+        background: var(--vscode-editorGroupHeader-tabsBackground);
+        opacity: 0.7;
+        white-space: pre;
+        padding-left: 0.5em;
+      }
+      .splitgrid .gno {
+        display: flex;
+        align-items: center;
         padding: 0 0.4em;
         opacity: 0.4;
-        flex: none;
         user-select: none;
-        position: sticky;
-        left: 0;
-        background: inherit;
       }
-      .srow .side .txt { padding: 0 0.4em; }
-      /* resizable split: --lw drives every row's left column for a draggable divider */
-      .diff.split { position: relative; --lw: 50%; overflow-x: hidden; }
-      .srow .side.add { position: relative; }
-      .sgut {
-        position: sticky;
-        right: 0;
-        opacity: 0;
+      .splitgrid .gno .n { margin-left: auto; text-align: right; white-space: pre; }
+      .splitgrid .gno.gsep { border-left: 1px solid var(--vscode-panel-border); }
+      .splitgrid .gcode {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        padding: 0 0.5em;
+        position: relative;
+      }
+      /* while dragging a selection, only the active side's code stays selectable */
+      .splitgrid.sel-new .gcode[data-side="old"],
+      .splitgrid.sel-old .gcode[data-side="new"] { user-select: none; }
+      .splitgrid .gno.del,
+      .splitgrid .gcode.del { background: rgba(220, 90, 90, 0.13); }
+      .splitgrid .gno.add,
+      .splitgrid .gcode.add { background: rgba(80, 200, 120, 0.13); }
+      /* 💬 gutter: always faintly visible (like inline), brightens on line hover */
+      .splitgrid .gno .sgut {
+        opacity: 0.25;
         cursor: pointer;
         user-select: none;
-        padding: 0 0.3em;
-        background: inherit;
+        padding-right: 0.2em;
       }
-      .srow:hover .sgut { opacity: 0.85; }
-      .diff.split .srow .side.del,
-      .diff.split .srow .side.empty:first-child { flex: 0 0 var(--lw); }
-      .diff.split .srow .side.add,
-      .diff.split .srow .side.empty:last-child { flex: 1 1 0; }
-      .split-divider {
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        left: var(--lw);
-        width: 7px;
-        transform: translateX(-50%);
-        cursor: col-resize;
-        z-index: 6;
-      }
-      .split-divider:hover,
-      .split-divider.dragging { background: var(--vscode-focusBorder); opacity: 0.6; }
-      .srow .side.del { background: rgba(220, 90, 90, 0.13); }
-      .srow .side.add { background: rgba(80, 200, 120, 0.13); }
-      .srow.hunk { background: var(--vscode-editorGroupHeader-tabsBackground); opacity: 0.7; padding-left: 0.5em; }
+      .splitgrid .srow:hover .sgut,
+      .splitgrid .gno:hover .sgut { opacity: 0.95; }
       /* GitLab-style comment threads */
       .thread {
         margin: 0.3rem 0.6rem 0.5rem 5.4em;
@@ -195,6 +246,11 @@
       .avatar.agent { background: #6f42c1; }
       .avatar.human { background: #1f75cb; }
       .msg-head .who { font-weight: 600; }
+      .msg-head .icon-edit { margin-left: auto; padding: 0 0.35em; font-size: 0.85em; line-height: 1.2; opacity: 0; }
+      .msg:hover .icon-edit { opacity: 0.6; }
+      .msg-head .icon-edit:hover { opacity: 1; }
+      .msg-edit { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.15rem 0; }
+      .msg-edit .edit-ta { flex: 1 0 100%; resize: vertical; font-family: var(--vscode-font-family); }
       .msg-body { white-space: pre-wrap; }
       .msg-body .code-block {
         margin: 0.35rem 0;
@@ -230,6 +286,8 @@
         resize: vertical;
         font-family: var(--vscode-font-family);
       }
+      .compose-actions { flex: 1 0 100%; display: flex; gap: 0.4rem; align-items: center; }
+      .compose-actions .cancel { margin-left: auto; }
       .compose .snippet {
         flex: 1 0 100%;
         margin: 0 0 0.3rem;
@@ -304,11 +362,11 @@
     <div class="toolbar">
       <span class="round" id="round"></span>
       <span class="toploader" id="toploader"></span>
-      <button id="toggle" title="Toggle inline / side-by-side diff">⇆ split/inline</button>
+      <button id="toggle" class="tipbtn tip-left" data-tip="Toggle inline / side-by-side diff">⇆ split/inline</button>
       <span class="grow"></span>
-      <button class="approve" id="approve" title="Approve — the change passes the gate, ready to merge">✓ Approve</button>
-      <button class="changes" id="requestChanges" title="Request changes — the agent fixes every comment and re-submits a new round">✗ Request changes</button>
-      <button class="clarify" id="clarify" title="Clarify — the agent answers all open questions; the form stays open">? Clarify</button>
+      <button class="act approve tipbtn" id="approve" data-tip="Approve — the change passes the gate, ready to merge">✓ Approve</button>
+      <button class="act changes tipbtn" id="requestChanges" data-tip="Request changes — the agent fixes every comment and re-submits a new round">✗ Request changes</button>
+      <button class="act clarify tipbtn tip-right" id="clarify" data-tip="Clarify — the agent answers all open questions; the form stays open">? Clarify</button>
     </div>
     <div id="files"><div class="empty">waiting for review session…</div></div>
     <script>

@@ -48,6 +48,7 @@ interface FileView {
   threads: {
     id: string;
     line: number;
+    side: "old" | "new";
     resolved: boolean;
     pending: boolean;
     messages: { author: string; body: string }[];
@@ -65,6 +66,10 @@ let sel: { file: string; start: number; end: number } | null = null;
 // Per-range comment drafts — survive closing/cancelling the composer and re-renders,
 // so re-opening the same line restores what you'd typed. Cleared on submit.
 const drafts = new Map<string, string>();
+// The composer currently open, if any. An incoming agent reply re-renders the
+// whole form; this lets render() reopen the composer (with its draft) instead of
+// silently dropping what the human was typing.
+let activeCompose: { file: string; startLine: number; endLine: number; side: "old" | "new"; snippet?: string } | null = null;
 
 function selectLine(file: string, line: number, shift: boolean): void {
   if (shift && sel?.file === file) sel.end = line;
@@ -82,14 +87,14 @@ function clearSelection(): void {
   highlightSelection();
 }
 function highlightSelection(): void {
-  document.querySelectorAll(".ln.sel").forEach((e) => {
+  document.querySelectorAll(".ln.sel, .gcode.sel").forEach((e) => {
     e.classList.remove("sel");
   });
   const cur = sel;
   if (!cur) return;
   const lo = Math.min(cur.start, cur.end);
   const hi = Math.max(cur.start, cur.end);
-  document.querySelectorAll(".ln").forEach((e) => {
+  document.querySelectorAll(".ln, .gcode").forEach((e) => {
     const row = e as HTMLElement;
     const ln = row.dataset.line ? parseInt(row.dataset.line, 10) : NaN;
     if (row.dataset.file === cur.file && ln >= lo && ln <= hi) row.classList.add("sel");
@@ -245,7 +250,7 @@ function inlineBody(f: FileView, lines: Line[], lang: string | null): HTMLElemen
       gut.classList.add("cm");
       gut.onclick = () => {
         const sel = selectionFor(f.path, line);
-        openCompose(row, f.path, sel.start, sel.end);
+        openCompose(row, f.path, sel.start, sel.end, "new");
         clearSelection();
       };
     }
@@ -271,22 +276,84 @@ function inlineBody(f: FileView, lines: Line[], lang: string | null): HTMLElemen
   return body;
 }
 
+// A split line-number cell. When the line exists it hosts a 💬 gutter that opens
+// a composer anchored to THAT side's line (old = left/deleted, new = right/added).
+function numCell(
+  no: number | undefined,
+  cls: string,
+  file: string,
+  side: "old" | "new",
+  wrap: HTMLElement,
+): HTMLElement {
+  const cell = el("span", cls);
+  if (no !== undefined) {
+    const line = no;
+    const gut = el("span", "sgut cm", "💬");
+    gut.title = `comment on ${side} line ${line}`;
+    gut.onclick = (e) => {
+      e.stopPropagation();
+      const s = selectionFor(file, line);
+      openCompose(wrap, file, s.start, s.end, side);
+      clearSelection();
+    };
+    cell.append(gut);
+  }
+  cell.append(el("span", "n", no !== undefined ? String(no) : ""));
+  return cell;
+}
+
+// One code cell: highlighted code plus, when the line exists, the comment anchor
+// (file + line + side) so native-selection comments resolve to the right side.
+function codeCell(l: Line | undefined, no: number | undefined, real: boolean, lang: string | null, file: string, side: "old" | "new"): HTMLElement {
+  const cell = el("span", `gcode${real ? ` ${side}` : ""}`);
+  if (l) cell.append(codeSpan(l.text, lang));
+  if (no !== undefined) {
+    cell.dataset.file = file;
+    cell.dataset.line = String(no);
+    cell.dataset.side = side;
+  }
+  return cell;
+}
+
+// Emit one diff line as four grid cells (old #, old code, new #, new code) into a
+// display:contents row wrapper. Both sides carry a gutter + anchor, so comments
+// land on deleted (left) and added/context (right) lines alike.
+function emitLine(grid: HTMLElement, d: Line | undefined, a: Line | undefined, lang: string | null, file: string): void {
+  const wrap = el("div", "srow");
+  wrap.append(numCell(d?.oldNo, `gno${d?.kind === "del" ? " del" : ""}`, file, "old", wrap));
+  wrap.append(codeCell(d, d?.oldNo, d?.kind === "del", lang, file, "old"));
+  wrap.append(numCell(a?.newNo, `gno gsep${a?.kind === "add" ? " add" : ""}`, file, "new", wrap));
+  wrap.append(codeCell(a, a?.newNo, a?.kind === "add", lang, file, "new"));
+  grid.append(wrap);
+}
+
+// Side-by-side diff as a single CSS grid: old/new columns share one horizontal
+// scroll, columns auto-align across every row, and each thread is a grid item
+// inserted right after its line on its own side (old → left half, new → right).
 function splitBody(f: FileView, lines: Line[], lang: string | null): HTMLElement {
-  const body = el("div");
-  const threadsByLine: Record<number, FileView["threads"]> = {};
-  for (const t of f.threads) (threadsByLine[t.line] ||= []).push(t);
+  const grid = el("div", "splitgrid");
+  const newByLine: Record<number, FileView["threads"]> = {};
+  const oldByLine: Record<number, FileView["threads"]> = {};
+  for (const t of f.threads) ((t.side === "old" ? oldByLine : newByLine)[t.line] ||= []).push(t);
+
+  const threadsFor = (line: number | undefined, side: "old" | "new") => {
+    const th = line !== undefined ? (side === "old" ? oldByLine : newByLine)[line] : undefined;
+    if (!th) return;
+    for (const t of th) {
+      const box = renderThread(t, lang);
+      box.classList.add(side);
+      grid.append(box);
+    }
+  };
+
   let dels: Line[] = [];
   let adds: Line[] = [];
-  const appendThreads = (line: number | undefined) => {
-    const th = line !== undefined ? threadsByLine[line] : undefined;
-    if (th) for (const t of th) body.append(renderThread(t, lang));
-  };
   const flush = () => {
     const n = Math.max(dels.length, adds.length);
     for (let i = 0; i < n; i++) {
-      const a = adds[i];
-      body.append(srow(dels[i], a, lang, f.path));
-      appendThreads(a?.newNo);
+      emitLine(grid, dels[i], adds[i], lang, f.path);
+      threadsFor(dels[i]?.oldNo, "old");
+      threadsFor(adds[i]?.newNo, "new");
     }
     dels = [];
     adds = [];
@@ -294,51 +361,18 @@ function splitBody(f: FileView, lines: Line[], lang: string | null): HTMLElement
   for (const l of lines) {
     if (l.kind === "hunk") {
       flush();
-      body.append(el("div", "srow hunk", l.text));
+      grid.append(el("div", "ghunk", l.text));
     } else if (l.kind === "del") dels.push(l);
     else if (l.kind === "add") adds.push(l);
     else {
       flush();
-      body.append(srow(l, l, lang, f.path));
-      appendThreads(l.newNo);
+      emitLine(grid, l, l, lang, f.path);
+      threadsFor(l.oldNo, "old");
+      threadsFor(l.newNo, "new");
     }
   }
   flush();
-  return body;
-}
-function sideCell(
-  l: Line | undefined,
-  kind: "del" | "add",
-  lang: string | null,
-  file: string,
-): HTMLElement {
-  const s = el("div", `side${l ? ` ${kind}` : " empty"}`);
-  if (!l) return s;
-  const no = el("span", "no", String(kind === "del" ? (l.oldNo ?? "") : (l.newNo ?? "")));
-  s.append(no, codeSpan(l.text, lang));
-  // The new-side carries the anchor so native text-selection comments work in split.
-  if (kind === "add" && l.newNo !== undefined) {
-    s.dataset.file = file;
-    s.dataset.line = String(l.newNo);
-  }
-  return s;
-}
-function srow(d: Line | undefined, a: Line | undefined, lang: string | null, file: string): HTMLElement {
-  const r = el("div", "srow");
-  const addCell = sideCell(a, "add", lang, file);
-  r.append(sideCell(d, "del", lang, file), addCell);
-  if (a?.newNo !== undefined) {
-    const line = a.newNo;
-    const gut = el("span", "sgut cm", "💬");
-    gut.title = `comment on line ${line}`;
-    gut.onclick = () => {
-      const sel = selectionFor(file, line);
-      openCompose(r, file, sel.start, sel.end);
-      clearSelection();
-    };
-    addCell.append(gut);
-  }
-  return r;
+  return grid;
 }
 
 function avatar(author: string): HTMLElement {
@@ -372,13 +406,53 @@ function renderThread(t: FileView["threads"][number], lang: string | null): HTML
     caret.textContent = open ? "▾" : "▸";
   };
 
-  for (const m of t.messages) {
+  // Edit your own posts in an unresolved thread: a pencil on each human message,
+  // plus an ↑ hotkey from the reply box that opens the newest one for editing.
+  const editFns: (() => void)[] = [];
+  t.messages.forEach((m, i) => {
     const msg = el("div", "msg");
     const head = el("div", "msg-head");
     head.append(avatar(m.author), el("span", "who", m.author === "agent" ? "revizorro" : "you"));
-    msg.append(head, renderBody(m.body, lang));
+    const bodyEl = renderBody(m.body, lang);
+    const startEdit = () => {
+      if (msg.querySelector(".msg-edit")) return;
+      const editor = el("div", "msg-edit");
+      const ta = document.createElement("textarea");
+      ta.className = "edit-ta";
+      ta.value = m.body;
+      const restore = () => {
+        editor.replaceWith(bodyEl);
+      };
+      const saveFn = () => {
+        const v = ta.value.trim();
+        if (v) vscode.postMessage({ type: "editMessage", threadId: t.id, index: i, body: v });
+        restore();
+      };
+      const save = el("button", "primary", "Save");
+      const cancel = el("button", "ghost cancel", "Cancel");
+      save.onclick = saveFn;
+      cancel.onclick = restore;
+      onSubmit(ta, saveFn, saveFn);
+      ta.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") restore();
+      });
+      const acts = el("div", "compose-actions");
+      acts.append(save, cancel);
+      editor.append(ta, acts);
+      bodyEl.replaceWith(editor);
+      autoGrow(ta);
+      ta.focus();
+    };
+    if (m.author === "human" && !t.resolved) {
+      editFns.push(startEdit);
+      const edit = el("button", "ghost icon-edit", "✏️");
+      edit.title = "Edit (↑)";
+      edit.onclick = startEdit;
+      head.append(el("span", "grow"), edit);
+    }
+    msg.append(head, bodyEl);
     content.append(msg);
-  }
+  });
 
   if (t.pending) {
     const loader = el("div", "loader");
@@ -390,7 +464,7 @@ function renderThread(t: FileView["threads"][number], lang: string | null): HTML
     const composer = el("div", "reply-box");
     const ta = document.createElement("textarea");
     ta.rows = 1;
-    ta.placeholder = "Reply…  (⌘/Ctrl+Enter reply · ⌘/Ctrl+Alt+Enter ask)";
+    ta.placeholder = "Reply…  (⌘/Ctrl+Enter reply · ⌥+Enter ask · ↑ edit last)";
     const replyFn = () => {
       const v = ta.value.trim();
       if (v) vscode.postMessage({ type: "reply", threadId: t.id, body: v });
@@ -406,6 +480,13 @@ function renderThread(t: FileView["threads"][number], lang: string | null): HTML
     reply.onclick = replyFn;
     ask.onclick = askFn;
     onSubmit(ta, replyFn, askFn);
+    // ↑ on an empty reply box edits your most recent post (terminal/Slack style).
+    ta.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowUp" && ta.value === "" && editFns.length > 0) {
+        e.preventDefault();
+        editFns[editFns.length - 1]();
+      }
+    });
     autoGrow(ta);
     composer.append(ta, reply, ask);
     content.append(composer);
@@ -419,13 +500,15 @@ function openCompose(
   file: string,
   startLine: number,
   endLine: number,
+  side: "old" | "new",
   snippet?: string,
 ): void {
   // Only one composer open at a time.
   document.querySelectorAll(".compose").forEach((e) => {
     e.remove();
   });
-  const box = el("div", "compose");
+  activeCompose = { file, startLine, endLine, side, snippet };
+  const box = el("div", `compose ${side}`);
   if (snippet) {
     const pre = el("pre", "snippet");
     pre.innerHTML = hl(snippet, langFor(file));
@@ -442,60 +525,45 @@ function openCompose(
   });
   // Carry the selected code into the comment so the agent sees the exact piece.
   const withSnippet = (v: string) => (snippet ? `\`\`\`\n${snippet}\n\`\`\`\n\n${v}` : v);
+  const close = () => {
+    activeCompose = null;
+    box.remove();
+  };
   const commentFn = () => {
     const v = ta.value.trim();
-    if (v) vscode.postMessage({ type: "comment", file, startLine, endLine, body: withSnippet(v) });
+    if (v) vscode.postMessage({ type: "comment", file, side, startLine, endLine, body: withSnippet(v) });
     drafts.delete(draftKey);
-    box.remove();
+    close();
   };
   const askFn = () => {
     const v = ta.value.trim();
-    if (v) vscode.postMessage({ type: "ask", file, startLine, endLine, body: withSnippet(v) });
+    if (v) vscode.postMessage({ type: "ask", file, side, startLine, endLine, body: withSnippet(v) });
     drafts.delete(draftKey);
-    box.remove();
+    close();
   };
   const send = el("button", undefined, "Comment");
   const ask = el("button", "primary", "Ask agent");
-  const cancel = el("button", "ghost", "Cancel");
+  const cancel = el("button", "ghost cancel", "Cancel");
   send.onclick = commentFn;
   ask.onclick = askFn;
-  cancel.onclick = () => {
-    box.remove();
-  };
+  cancel.onclick = close;
   onSubmit(ta, commentFn, askFn);
   ta.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") box.remove();
+    if (e.key === "Escape") close();
   });
-  box.append(ta, send, ask, cancel);
-  row.after(box);
+  const actions = el("div", "compose-actions");
+  actions.append(send, ask, cancel);
+  box.append(ta, actions);
+  // In split, anchor the composer after the line's grid row so it spans full
+  // width as its own grid item; in inline it just follows the clicked line.
+  const block = row.closest(".srow") ?? row;
+  block.after(box);
   autoGrow(ta);
   ta.focus();
 }
 
 const LOCKFILE =
   /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|Cargo\.lock)$/;
-
-// Draggable divider that resizes the left/right columns of a split diff.
-function splitDivider(container: HTMLElement): HTMLElement {
-  const d = el("div", "split-divider");
-  d.onmousedown = (e) => {
-    e.preventDefault();
-    d.classList.add("dragging");
-    const rect = container.getBoundingClientRect();
-    const move = (ev: MouseEvent) => {
-      const pct = Math.min(85, Math.max(15, ((ev.clientX - rect.left) / rect.width) * 100));
-      container.style.setProperty("--lw", `${pct}%`);
-    };
-    const up = () => {
-      d.classList.remove("dragging");
-      document.removeEventListener("mousemove", move);
-      document.removeEventListener("mouseup", up);
-    };
-    document.addEventListener("mousemove", move);
-    document.addEventListener("mouseup", up);
-  };
-  return d;
-}
 
 function renderFile(f: FileView, mode: string): HTMLElement {
   const lineCount = f.patch ? f.patch.split("\n").length : 0;
@@ -529,7 +597,7 @@ function renderFile(f: FileView, mode: string): HTMLElement {
     const lines = parsePatch(f.patch);
     if (mode === "split") {
       diff.classList.add("split");
-      diff.append(splitBody(f, lines, lang), splitDivider(diff));
+      diff.append(splitBody(f, lines, lang));
     } else {
       diff.append(inlineBody(f, lines, lang));
     }
@@ -542,6 +610,11 @@ function render(): void {
   if (!state) return;
   const round = document.getElementById("round");
   if (round) round.textContent = `round ${state.round} · ${state.status}`;
+  const toggle = document.getElementById("toggle");
+  if (toggle) {
+    const mode = state.viewMode || "inline";
+    toggle.innerHTML = `⇆ <span class="${mode === "inline" ? "on" : ""}">inline</span> / <span class="${mode === "split" ? "on" : ""}">split</span>`;
+  }
   const pendingCount = state.files.reduce(
     (n, f) => n + f.threads.filter((t) => t.pending).length,
     0,
@@ -556,6 +629,15 @@ function render(): void {
     return;
   }
   for (const f of state.files) root.append(renderFile(f, state.viewMode || "inline"));
+  // Reopen the composer the human had open before this re-render (e.g. an agent
+  // reply landed mid-typing) so their in-progress comment survives.
+  if (activeCompose) {
+    const { file, startLine, endLine, side, snippet } = activeCompose;
+    const anchor =
+      document.querySelector(`[data-side="${side}"][data-file="${CSS.escape(file)}"][data-line="${endLine}"]`) ??
+      document.querySelector(`[data-file="${CSS.escape(file)}"][data-line="${endLine}"]`);
+    if (anchor instanceof HTMLElement) openCompose(anchor, file, startLine, endLine, side, snippet);
+  }
 }
 
 function bindButton(id: string, msgType: string): void {
@@ -573,14 +655,24 @@ bindButton("toggle", "toggleViewMode");
 // Native text selection → floating "Comment" bubble. Select any code (part of a
 // line or across lines) and a bubble offers to comment on the spanned range.
 function rowOf(node: Node | null): HTMLElement | null {
-  const elt = node && node.nodeType === 3 ? node.parentElement : (node as Element | null);
-  return (elt?.closest(".ln, .side") as HTMLElement | null) ?? null;
+  const elt = node?.nodeType === 3 ? node.parentElement : (node as Element | null);
+  return (elt?.closest(".ln, .gcode") as HTMLElement | null) ?? null;
 }
 let bubble: HTMLElement | null = null;
 function clearBubble(): void {
   bubble?.remove();
   bubble = null;
 }
+// Constrain a split selection to one side: on mousedown, tag which side is being
+// selected so user-select disables the other (kills the mirrored cross-side drag).
+document.addEventListener("mousedown", (e) => {
+  document.querySelectorAll(".splitgrid").forEach((g) => {
+    g.classList.remove("sel-old", "sel-new");
+  });
+  const cell = e.target instanceof Element ? e.target.closest<HTMLElement>(".gcode[data-side]") : null;
+  const side = cell?.dataset.side;
+  if (side) cell?.closest(".splitgrid")?.classList.add(side === "old" ? "sel-old" : "sel-new");
+});
 document.addEventListener("mouseup", (e) => {
   // Don't dismiss the bubble when the click is the bubble itself — let its
   // onclick fire (otherwise the button is unclickable).
@@ -592,6 +684,8 @@ document.addEventListener("mouseup", (e) => {
   const endRow = rowOf(selObj.focusNode);
   const file = startRow?.dataset.file;
   if (!file) return;
+  // Comment on the side where the selection started (old = deleted, new = added).
+  const side = (startRow?.dataset.side as "old" | "new" | undefined) ?? "new";
   const nums = [startRow, endRow]
     .map((r) => (r?.dataset.line ? parseInt(r.dataset.line, 10) : NaN))
     .filter((n) => !Number.isNaN(n));
@@ -599,15 +693,18 @@ document.addEventListener("mouseup", (e) => {
   const startLine = Math.min(...nums);
   const endLine = Math.max(...nums);
   const snippet = selObj.toString();
-  const rect = selObj.getRangeAt(0).getBoundingClientRect();
   const label = startLine === endLine ? `line ${startLine}` : `lines ${startLine}–${endLine}`;
   const b = el("button", "sel-bubble primary", `💬 Comment on ${label}`);
-  b.style.top = `${rect.bottom + window.scrollY + 4}px`;
-  b.style.left = `${rect.left + window.scrollX}px`;
+  // Anchor at the cursor where the drag ended — on the active side — instead of a
+  // multi-row range rect that geometrically spans both columns (= always left).
+  b.style.top = `${e.clientY + window.scrollY + 8}px`;
+  b.style.left = `${e.clientX + window.scrollX}px`;
   b.onclick = () => {
-    const anchor = document.querySelector(`.ln[data-file="${CSS.escape(file)}"][data-line="${endLine}"]`);
+    const anchor =
+      document.querySelector(`[data-side="${side}"][data-file="${CSS.escape(file)}"][data-line="${endLine}"]`) ??
+      document.querySelector(`[data-file="${CSS.escape(file)}"][data-line="${endLine}"]`);
     clearBubble();
-    if (anchor instanceof HTMLElement) openCompose(anchor, file, startLine, endLine, snippet);
+    if (anchor instanceof HTMLElement) openCompose(anchor, file, startLine, endLine, side, snippet);
   };
   bubble = b;
   document.body.append(b);

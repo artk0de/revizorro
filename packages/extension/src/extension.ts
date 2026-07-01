@@ -18,11 +18,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const worktreeId = createHash("sha1").update(repoRoot).digest("hex").slice(0, 12);
   const mediaDir = join(context.extensionPath, "media");
 
-  host = new ReviewHost(repoRoot, worktreeId, (state, diff) => form?.render(state, diff));
+  host = new ReviewHost(
+    repoRoot,
+    worktreeId,
+    (state, diff) => form?.render(state, diff),
+    (state, diff) => form?.open(state, diff),
+  );
   form = new ReviewForm(host, mediaDir);
   await host.start();
 
   context.subscriptions.push(
+    // The form is ephemeral: it must appear only when the loop starts a review,
+    // never get restored by VS Code on window reload. Drop any rehydrated panel.
+    vscode.window.registerWebviewPanelSerializer("revizorroReview", {
+      deserializeWebviewPanel(panel: vscode.WebviewPanel): Thenable<void> {
+        panel.dispose();
+        return Promise.resolve();
+      },
+    }),
     vscode.commands.registerCommand("revizorro.approve", () => host?.approve()),
     vscode.commands.registerCommand("revizorro.requestChanges", () => void host?.requestChanges()),
     vscode.commands.registerCommand("revizorro.clarify", () => void host?.clarify()),
