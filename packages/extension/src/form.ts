@@ -32,6 +32,7 @@ export class ReviewForm {
     const files = diff.map((d) => ({
       path: d.path,
       patch: d.patch ?? "",
+      content: d.content ?? "",
       binary: d.binary ?? false,
       viewed: state.files[d.path]?.viewed ?? false,
       threads: state.threads

@@ -141,6 +141,19 @@
       .ln.del .txt::before { content: "−"; opacity: 0.5; }
       .ln.ctx .txt::before { content: " "; }
       .ln.hunk { background: var(--vscode-editorGroupHeader-tabsBackground); opacity: 0.7; padding-left: 0.5em; }
+      /* "expand context" control shown in the gaps between diff hunks */
+      .expand-row {
+        padding: 0.15rem 0.7rem;
+        color: var(--vscode-textLink-foreground);
+        background: var(--vscode-editorGroupHeader-tabsBackground);
+        border-block: 1px solid var(--vscode-panel-border);
+        cursor: pointer;
+        user-select: none;
+        font-size: 0.85em;
+        opacity: 0.85;
+      }
+      .expand-row:hover { opacity: 1; text-decoration: underline; }
+      .splitgrid > .expand-row { grid-column: 1 / -1; }
       /* split view — single CSS grid; code columns soft-wrap (GitHub/GitLab style) */
       .diff.split { overflow-x: hidden; }
       .splitgrid {

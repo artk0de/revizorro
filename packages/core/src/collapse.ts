@@ -5,6 +5,8 @@ export interface DiffFile {
   contentHash: string;
   /** Raw unified `git diff` body for the file (worktree vs merge-base). Transient — not persisted. */
   patch?: string;
+  /** Current (worktree) text of the file, for expanding diff context. Absent for binary/deleted files. */
+  content?: string;
   /** True when git reports the file as binary (no textual diff). */
   binary?: boolean;
 }

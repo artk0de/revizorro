@@ -43,17 +43,19 @@ export class GitDiffProvider implements DiffProvider {
     const files: DiffFile[] = [];
     for (const path of paths) {
       let contentHash = "";
+      let content: string | undefined;
       try {
         const bytes = await readFile(join(this.repoRoot, path));
         contentHash = createHash("sha1").update(bytes).digest("hex");
+        content = bytes.toString("utf8");
       } catch {
-        // deleted file → empty hash
+        // deleted file → empty hash, no content
       }
       const patch = untracked.has(path)
         ? await this.gitAllowFail("diff", "--no-index", "--", "/dev/null", path)
         : await this.gitAllowFail("diff", base, "--", path);
       const binary = /Binary files|GIT binary patch/.test(patch);
-      files.push({ path, contentHash, patch, binary });
+      files.push({ path, contentHash, patch, binary, content: binary ? undefined : content });
     }
     return files.sort((a, b) => a.path.localeCompare(b.path));
   }

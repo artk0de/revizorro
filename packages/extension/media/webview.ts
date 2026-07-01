@@ -43,6 +43,7 @@ interface Msg {
 interface FileView {
   path: string;
   patch: string;
+  content: string;
   binary: boolean;
   viewed: boolean;
   threads: {
@@ -55,11 +56,18 @@ interface FileView {
   }[];
 }
 interface Line {
-  kind: "add" | "del" | "ctx" | "hunk";
+  kind: "add" | "del" | "ctx" | "hunk" | "expand";
   oldNo?: number;
   newNo?: number;
   text: string;
+  // For "expand" rows: which hidden context this control reveals when clicked.
+  gap?: { file: string; key: string; up?: number; down?: number };
 }
+
+// How many lines each expand control reveals per click, and how many context
+// lines already revealed per gap (keyed `${file}#${gapId}`), across re-renders.
+const EXPAND_STEP = 20;
+const expandedGaps = new Map<string, number>();
 
 let state: Msg | null = null;
 let sel: { file: string; start: number; end: number } | null = null;
@@ -237,6 +245,10 @@ function inlineBody(f: FileView, lines: Line[], lang: string | null): HTMLElemen
   const threadsByLine: Record<number, FileView["threads"]> = {};
   for (const t of f.threads) (threadsByLine[t.line] ||= []).push(t);
   for (const l of lines) {
+    if (l.kind === "expand") {
+      body.append(expandRow(l));
+      continue;
+    }
     if (l.kind === "hunk") {
       body.append(el("div", "ln hunk", l.text));
       continue;
@@ -359,7 +371,10 @@ function splitBody(f: FileView, lines: Line[], lang: string | null): HTMLElement
     adds = [];
   };
   for (const l of lines) {
-    if (l.kind === "hunk") {
+    if (l.kind === "expand") {
+      flush();
+      grid.append(expandRow(l));
+    } else if (l.kind === "hunk") {
       flush();
       grid.append(el("div", "ghunk", l.text));
     } else if (l.kind === "del") dels.push(l);
@@ -565,6 +580,84 @@ function openCompose(
 const LOCKFILE =
   /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|Cargo\.lock)$/;
 
+const HUNK_RE = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+
+// Splice hidden context (from the file's current content) into the gaps between
+// hunks, gated by expandedGaps: each gap starts as a clickable "expand" control
+// and reveals EXPAND_STEP more lines per click. Revealed lines are plain context,
+// so they render — and accept comments — like any other line.
+function withExpansions(f: FileView, lines: Line[]): Line[] {
+  if (!f.content) return lines;
+  const contentLines = f.content.split("\n");
+  if (contentLines.length > 0 && contentLines[contentLines.length - 1] === "") contentLines.pop();
+  const total = contentLines.length;
+  const out: Line[] = [];
+
+  const ctxLine = (n: number, offset: number): Line => ({
+    kind: "ctx",
+    newNo: n,
+    oldNo: n - offset,
+    text: contentLines[n - 1] ?? "",
+  });
+  // Emit a hidden range [startNew..endNew] as revealed context + an expand control.
+  // grow="up": reveal from the bottom edge (nearest the following hunk) upward;
+  // grow="down": reveal from the top edge (nearest the preceding hunk) downward.
+  const emitGap = (startNew: number, endNew: number, offset: number, id: string, grow: "up" | "down") => {
+    const size = endNew - startNew + 1;
+    if (size <= 0) return;
+    const key = `${f.path}#${id}`;
+    const revealed = Math.min(size, expandedGaps.get(key) ?? 0);
+    const hidden = size - revealed;
+    const control = (): Line => ({ kind: "expand", text: "", gap: { file: f.path, key, up: hidden } });
+    if (grow === "up") {
+      if (hidden > 0) out.push(control());
+      for (let n = endNew - revealed + 1; n <= endNew; n++) out.push(ctxLine(n, offset));
+    } else {
+      for (let n = startNew; n < startNew + revealed; n++) out.push(ctxLine(n, offset));
+      if (hidden > 0) out.push(control());
+    }
+  };
+
+  let lastNew = 0;
+  let lastOld = 0;
+  let firstHunk = true;
+  let gapIdx = 0;
+  for (const l of lines) {
+    if (l.kind === "hunk") {
+      const m = HUNK_RE.exec(l.text);
+      if (m) {
+        const offset = parseInt(m[2], 10) - parseInt(m[1], 10);
+        if (firstHunk) emitGap(1, parseInt(m[2], 10) - 1, offset, "top", "up");
+        else emitGap(lastNew + 1, parseInt(m[2], 10) - 1, offset, `g${gapIdx++}`, "down");
+        firstHunk = false;
+      }
+      out.push(l);
+      continue;
+    }
+    out.push(l);
+    if (l.newNo !== undefined) lastNew = l.newNo;
+    if (l.oldNo !== undefined) lastOld = l.oldNo;
+  }
+  if (lastNew > 0) emitGap(lastNew + 1, total, lastNew - lastOld, "bottom", "down");
+  return out;
+}
+
+// Clickable "expand context" row; reveals EXPAND_STEP more lines of its gap.
+function expandRow(l: Line): HTMLElement {
+  const g = l.gap;
+  const row = el("div", "expand-row");
+  if (!g) return row;
+  const hidden = g.up ?? g.down ?? 0;
+  const step = Math.min(hidden, EXPAND_STEP);
+  row.textContent = `↕ expand ${step} line${step === 1 ? "" : "s"}${hidden > EXPAND_STEP ? ` · ${hidden} hidden` : ""}`;
+  row.title = "Show more context";
+  row.onclick = () => {
+    expandedGaps.set(g.key, (expandedGaps.get(g.key) ?? 0) + EXPAND_STEP);
+    render();
+  };
+  return row;
+}
+
 function renderFile(f: FileView, mode: string): HTMLElement {
   const lineCount = f.patch ? f.patch.split("\n").length : 0;
   const big = LOCKFILE.test(f.path) || lineCount > 400;
@@ -594,7 +687,7 @@ function renderFile(f: FileView, mode: string): HTMLElement {
   if (f.binary) diff.append(el("div", "binary", "(binary file — no textual diff)"));
   else {
     const lang = langFor(f.path);
-    const lines = parsePatch(f.patch);
+    const lines = withExpansions(f, parsePatch(f.patch));
     if (mode === "split") {
       diff.classList.add("split");
       diff.append(splitBody(f, lines, lang));
