@@ -430,7 +430,9 @@ function renderThread(t: FileView["threads"][number]): HTMLElement {
   // plus an ↑ hotkey from the reply box that opens the newest one for editing.
   const editFns: (() => void)[] = [];
   t.messages.forEach((m, i) => {
-    const msg = el("div", "msg");
+    // The first message is the root comment; everything after is a reply —
+    // indent replies under a left rail so the conversation reads as a thread.
+    const msg = el("div", i === 0 ? "msg" : "msg reply");
     const head = el("div", "msg-head");
     head.append(avatar(m.author), el("span", "who", m.author === "agent" ? "revizorro" : "you"));
     const bodyEl = renderBody(m.body);

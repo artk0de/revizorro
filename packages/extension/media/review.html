@@ -243,6 +243,9 @@
       }
       .thread .msg { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--vscode-panel-border); }
       .thread .msg:last-of-type { border-bottom: none; }
+      /* Replies (every message after the root) nest under a left rail. */
+      .thread .msg.reply { margin-left: 1.1rem; border-left: 2px solid var(--vscode-panel-border); padding-left: 0.7rem; }
+      .thread .msg.reply .msg-head .who { font-weight: 500; opacity: 0.9; }
       .msg-head { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem; }
       .avatar {
         width: 1.4em;
@@ -320,6 +323,21 @@
         flex: 1 0 100%;
         resize: vertical;
         font-family: var(--vscode-font-family);
+      }
+      /* Composer inputs share the rendered comment's look: same font metrics,
+         padded card with an input border, so typing feels like part of the thread. */
+      .reply-box textarea, .compose textarea, .msg-edit .edit-ta {
+        padding: 0.4rem 0.6rem;
+        line-height: 1.45;
+        font-size: inherit;
+        color: var(--vscode-input-foreground);
+        background: var(--vscode-input-background);
+        border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+        border-radius: 4px;
+      }
+      .reply-box textarea:focus, .compose textarea:focus, .msg-edit .edit-ta:focus {
+        outline: none;
+        border-color: var(--vscode-focusBorder);
       }
       .compose {
         margin: 0.3rem 0.6rem 0.6rem 5.4em;
