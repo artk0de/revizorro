@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { HttpReviewClient, orderedHosts, unregisterHost } from "@revizorro/core-adapters";
+import {
+  HttpReviewClient,
+  GitDiffProvider,
+  orderedHosts,
+  unregisterHost,
+} from "@revizorro/core-adapters";
 import { PushPayload } from "@revizorro/protocol";
 import { runReview, resolveWorktreeId } from "@revizorro/cli";
 
@@ -27,6 +32,18 @@ async function main() {
   }).trim();
   const worktreeId = resolveWorktreeId(process.cwd());
 
+  // `--check` is a pure git preflight: no VS Code window required, exit-code only.
+  if (argv.includes("--check")) {
+    const { exitCode } = await runReview(argv, {
+      transport: null,
+      diff: new GitDiffProvider(repoRoot),
+      worktreeId,
+      repoRoot,
+      readPush,
+    });
+    process.exit(exitCode);
+  }
+
   // Prefer a window that has THIS project open; else any window with the extension.
   const ports = orderedHosts(repoRoot).map((h) => h.port);
   if (ports.length === 0) {
@@ -35,7 +52,6 @@ async function main() {
     );
   }
 
-  let lastErr;
   for (const port of ports) {
     try {
       const { stdout, exitCode } = await runReview(argv, {
@@ -47,7 +63,6 @@ async function main() {
       if (stdout) process.stdout.write(`${stdout}\n`);
       process.exit(exitCode);
     } catch (err) {
-      lastErr = err;
       // Dead host (window closed) → drop the stale registry entry and try the next.
       if (err && err.code === "ECONNREFUSED") {
         unregisterHost(port);

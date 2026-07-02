@@ -43,6 +43,28 @@ describe("runReview", () => {
     expect(received).toEqual({ replies: [{ threadId: "t1", body: "ack" }], comments: [] });
     expect(r.exitCode).toBe(0);
   });
+  it("exits 10 with no output when `review --check` finds a worktree diff", async () => {
+    const r = await runReview(["review", "--check"], {
+      transport: fakeTransport({ type: "idle" }),
+      diff: { diff: async () => [{ path: "a.ts", contentHash: "h1" }] },
+      worktreeId: "wt1",
+      repoRoot: "/repo",
+      readPush: () => ({ replies: [], comments: [] }),
+    });
+    expect(r.exitCode).toBe(10);
+    expect(r.stdout).toBe("");
+  });
+  it("exits 0 when `review --check` finds an empty diff (nothing to review)", async () => {
+    const r = await runReview(["review", "--check"], {
+      transport: fakeTransport({ type: "idle" }),
+      diff: { diff: async () => [] },
+      worktreeId: "wt1",
+      repoRoot: "/repo",
+      readPush: () => ({ replies: [], comments: [] }),
+    });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toBe("");
+  });
   it("exits 2 on an unknown command", async () => {
     const r = await runReview(["bogus"], {
       transport: fakeTransport({ type: "idle" }),
