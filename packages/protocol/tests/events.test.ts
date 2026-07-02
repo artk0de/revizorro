@@ -22,6 +22,9 @@ describe("ReviewEvent", () => {
   it("parses idle", () => {
     expect(ReviewEvent.parse({ type: "idle" }).type).toBe("idle");
   });
+  it("parses a closed event (human left without a verdict)", () => {
+    expect(ReviewEvent.parse({ type: "closed" }).type).toBe("closed");
+  });
   it("defaults a comment's side to new and accepts old", () => {
     const newSide = ReviewEvent.parse({
       type: "comment",

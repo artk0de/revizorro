@@ -10,15 +10,26 @@ describe("runReview", () => {
     const r = await runReview(["review", "--worktree"], {
       transport: fakeTransport({ type: "decision", verdict: "approved", comments: [] }),
       worktreeId: "wt1",
+      repoRoot: "/repo",
       readPush: () => ({ replies: [], comments: [] }),
     });
     expect(r.exitCode).toBe(0);
     expect(JSON.parse(r.stdout)).toEqual({ type: "decision", verdict: "approved", comments: [] });
   });
+  it("forwards a closed event so the agent knows the human left without a verdict", async () => {
+    const r = await runReview(["review", "--worktree"], {
+      transport: fakeTransport({ type: "closed" }),
+      worktreeId: "wt1",
+      repoRoot: "/repo",
+      readPush: () => ({ replies: [], comments: [] }),
+    });
+    expect(r.exitCode).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual({ type: "closed" });
+  });
   it("passes the push payload through on `--push`", async () => {
     let received: PushPayload | undefined;
     const transport: ReviewTransport = {
-      review: async (_wt, push) => {
+      review: async (_wt, _repoRoot, push) => {
         received = push;
         return { type: "idle" };
       },
@@ -26,6 +37,7 @@ describe("runReview", () => {
     const r = await runReview(["review", "--push", "p.json"], {
       transport,
       worktreeId: "wt1",
+      repoRoot: "/repo",
       readPush: () => ({ replies: [{ threadId: "t1", body: "ack" }], comments: [] }),
     });
     expect(received).toEqual({ replies: [{ threadId: "t1", body: "ack" }], comments: [] });
@@ -35,6 +47,7 @@ describe("runReview", () => {
     const r = await runReview(["bogus"], {
       transport: fakeTransport({ type: "idle" }),
       worktreeId: "wt1",
+      repoRoot: "/repo",
       readPush: () => ({ replies: [], comments: [] }),
     });
     expect(r.exitCode).toBe(2);

@@ -87,6 +87,11 @@ windows are skipped and cleaned up automatically.
      After answering all, re-enter with `revizorro review --worktree` to wait for
      the human's next decision. Loop back to step 2.
 
+   - **`closed`** — the human closed the review form without a verdict (no
+     approve / request changes). Do NOT re-arm blindly and do NOT merge. Ask
+     the user how to proceed (resume, merge anyway, or abort). Re-entering
+     `revizorro review --worktree` reopens the same open round if they resume.
+
 ## Push-file shape
 
 `--push` reads a JSON file matching the protocol `PushPayload`:
@@ -108,3 +113,5 @@ the diff. Either array may be empty.
 - Do NOT merge on `changes_requested`. Fix, re-submit, and wait for `approved`.
 - On `clarify`, only answer — never edit code.
 - On `approved`, the review gate has passed — you may merge the worktree.
+- On `closed`, the human left without deciding — ask the user; never merge and
+  never silently re-loop.

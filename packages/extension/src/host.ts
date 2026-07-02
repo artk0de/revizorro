@@ -115,6 +115,18 @@ export class ReviewHost {
     this.events.emit(c.worktreeId, { type: "decision", verdict: "approved", comments: [] });
   }
 
+  /**
+   * The human closed the form without a verdict. Only signal `closed` while the
+   * session is still open — a decided (approved/changes_requested) session has
+   * already unblocked the agent, so its late dispose must stay silent.
+   */
+  async abandon(): Promise<void> {
+    const c = this.current;
+    if (!c) return;
+    const cur = await c.store.load(c.worktreeId);
+    if (cur?.status === "open") this.events.emit(c.worktreeId, { type: "closed" });
+  }
+
   /** Request changes: the agent fixes every open comment and re-submits a new round. */
   async requestChanges(): Promise<void> {
     const c = this.current;

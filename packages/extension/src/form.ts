@@ -14,6 +14,9 @@ export class ReviewForm {
   private panel?: vscode.WebviewPanel;
   private lastMessage?: object;
   private viewMode: "inline" | "split" = "inline";
+  /** Set right before a verdict disposes the panel, so onDidDispose can tell a
+   *  real decision apart from the human closing the tab (which must emit closed). */
+  private decided = false;
 
   constructor(
     private readonly host: ReviewHost,
@@ -22,6 +25,7 @@ export class ReviewForm {
 
   /** Open (creating if needed) the form, then render the current state. */
   open(state: SessionState | null, diff: DiffFile[]): void {
+    this.decided = false;
     this.ensurePanel();
     this.render(state, diff);
   }
@@ -70,7 +74,12 @@ export class ReviewForm {
       "<\\/script>",
     );
     this.panel.webview.html = html.replace("// <!--WEBVIEW_JS-->", () => js);
-    this.panel.onDidDispose(() => (this.panel = undefined));
+    this.panel.onDidDispose(() => {
+      this.panel = undefined;
+      // Tab closed without Approve/Request changes → the human abandoned the
+      // review; wake any blocked agent with a closed event instead of hanging.
+      if (!this.decided) void this.host.abandon();
+    });
     this.panel.webview.onDidReceiveMessage(
       (m: {
         type: string;
@@ -87,9 +96,11 @@ export class ReviewForm {
         if (m.type === "ready") {
           if (this.lastMessage) void this.panel?.webview.postMessage(this.lastMessage);
         } else if (m.type === "approve") {
+          this.decided = true;
           this.host.approve();
           this.panel?.dispose();
         } else if (m.type === "requestChanges") {
+          this.decided = true;
           void this.host.requestChanges();
           this.panel?.dispose();
         } else if (m.type === "clarify") {

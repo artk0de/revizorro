@@ -19,11 +19,15 @@ export const DecisionEvent = z.object({
   comments: z.array(z.object(threadAnchor)).default([]),
 });
 export const IdleEvent = z.object({ type: z.literal("idle") });
+// The human closed the review form without a verdict — the agent must ask the
+// user how to proceed instead of blocking forever on the next event.
+export const ClosedEvent = z.object({ type: z.literal("closed") });
 
 export const ReviewEvent = z.discriminatedUnion("type", [
   QuestionEvent,
   CommentEvent,
   DecisionEvent,
   IdleEvent,
+  ClosedEvent,
 ]);
 export type ReviewEvent = z.infer<typeof ReviewEvent>;
