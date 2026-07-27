@@ -35,6 +35,7 @@ export class ReviewForm {
     if (!this.panel || !state) return;
     const files = diff.map((d) => ({
       path: d.path,
+      oldPath: d.oldPath,
       patch: d.patch ?? "",
       content: d.content ?? "",
       binary: d.binary ?? false,

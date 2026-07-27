@@ -88,6 +88,52 @@
       .toploader { font-size: 0.82em; opacity: 0.9; font-style: italic; }
       #toggle .on { font-weight: 700; }
       #toggle span:not(.on) { opacity: 0.5; }
+      /* file-tree sidebar + diff column */
+      .main { display: flex; align-items: flex-start; }
+      .main #files { flex: 1; min-width: 0; }
+      .tree {
+        flex: none;
+        width: 17rem;
+        position: sticky;
+        top: 2.9rem;
+        max-height: calc(100vh - 3.2rem);
+        overflow: auto;
+        padding: 0.4rem 0.2rem 1.5rem;
+        border-right: 1px solid var(--vscode-panel-border);
+        font-size: 0.88em;
+        user-select: none;
+      }
+      .main.tree-hidden .tree { display: none; }
+      #treeToggle { opacity: 0.55; }
+      #treeToggle.on { opacity: 1; }
+      .tree-head {
+        display: flex;
+        gap: 0.4rem;
+        align-items: baseline;
+        padding: 0.2rem 0.5rem 0.4rem;
+        opacity: 0.6;
+        font-size: 0.9em;
+      }
+      .tree-head .stat { margin-left: auto; }
+      .tree .node {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.12rem 0.45rem 0.12rem 0.3rem;
+        border-radius: 3px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .tree .node:hover { background: var(--vscode-list-hoverBackground); }
+      .tree .node .nm { overflow: hidden; text-overflow: ellipsis; }
+      .tree .node.dir .nm { font-weight: 600; opacity: 0.85; }
+      .tree .node.dir .tcaret { opacity: 0.5; font-size: 0.8em; }
+      .tree .node.file.viewed { opacity: 0.45; }
+      .tree .node.file.moved .nm { font-style: italic; }
+      .tree .node .stat { margin-left: auto; padding-left: 0.4rem; font-size: 0.85em; }
+      .tree .node .add { color: var(--vscode-testing-iconPassed); }
+      .tree .node .del { color: var(--vscode-testing-iconFailed); }
+      .tree .node .cmt { opacity: 0.75; }
       .file {
         border: 1px solid var(--vscode-panel-border);
         border-radius: 4px;
@@ -105,6 +151,16 @@
       }
       .file-head .path { font-weight: 600; flex: 1; }
       .file-head .tag { opacity: 0.6; font-size: 0.8em; }
+      /* renamed/moved file: old path stays visible, dimmed, before the arrow */
+      .file-head .path .oldpath { opacity: 0.55; font-weight: 400; text-decoration: line-through; }
+      .file-head .path .movearrow { opacity: 0.55; }
+      .file-head .tag.move {
+        opacity: 0.9;
+        padding: 0.05em 0.45em;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 999px;
+        background: var(--vscode-editorWidget-background);
+      }
       .file.viewed .file-head { opacity: 0.55; }
       .diff {
         font-family: var(--vscode-editor-font-family, ui-monospace, "SF Mono", Menlo, monospace);
@@ -424,6 +480,7 @@
   </head>
   <body>
     <div class="toolbar">
+      <button id="treeToggle" class="tipbtn tip-left" data-tip="Show / hide the file tree">🗂</button>
       <span class="round" id="round"></span>
       <span class="toploader" id="toploader"></span>
       <button id="toggle" class="tipbtn tip-left" data-tip="Toggle inline / side-by-side diff">⇆ split/inline</button>
@@ -432,7 +489,10 @@
       <button class="act changes tipbtn" id="requestChanges" data-tip="Request changes — the agent fixes every comment and re-submits a new round">✗ Request changes</button>
       <button class="act clarify tipbtn tip-right" id="clarify" data-tip="Clarify — the agent answers all open questions; the form stays open">? Clarify</button>
     </div>
-    <div id="files"><div class="empty">waiting for review session…</div></div>
+    <div class="main" id="main">
+      <aside class="tree" id="tree"></aside>
+      <div id="files"><div class="empty">waiting for review session…</div></div>
+    </div>
     <script>
       // <!--WEBVIEW_JS-->
     </script>

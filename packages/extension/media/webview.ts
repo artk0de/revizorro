@@ -14,6 +14,7 @@ import rust from "highlight.js/lib/languages/rust";
 import java from "highlight.js/lib/languages/java";
 import sql from "highlight.js/lib/languages/sql";
 import MarkdownIt from "markdown-it";
+import { buildFileTree, type FileTreeNode } from "@revizorro/core";
 
 hljs.registerLanguage("typescript", typescript);
 hljs.registerLanguage("javascript", javascript);
@@ -43,6 +44,8 @@ interface Msg {
 }
 interface FileView {
   path: string;
+  /** Set when git detected a rename — the path this file used to live at. */
+  oldPath?: string;
   patch: string;
   content: string;
   binary: boolean;
@@ -665,15 +668,51 @@ function expandRow(l: Line): HTMLElement {
   return row;
 }
 
+const baseName = (path: string): string => path.split("/").pop() ?? path;
+
+// A moved file keeps its name, a renamed one doesn't — GitLab/GitHub label the two
+// differently, and the distinction is what tells you whether to re-read the diff.
+function renamePath(f: FileView): { label: HTMLElement; tag: string } {
+  const label = el("span", "path");
+  if (!f.oldPath) {
+    label.textContent = f.path;
+    return { label, tag: "" };
+  }
+  label.append(
+    el("span", "oldpath", f.oldPath),
+    el("span", "movearrow", " → "),
+    document.createTextNode(f.path),
+  );
+  return { label, tag: baseName(f.oldPath) === baseName(f.path) ? "moved" : "renamed" };
+}
+
+/** Added/removed line counts for the tree's +N −M column. */
+function diffStat(patch: string): { add: number; del: number } {
+  let add = 0;
+  let del = 0;
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("+")) add++;
+    else if (line.startsWith("-")) del++;
+  }
+  return { add, del };
+}
+
 function renderFile(f: FileView, mode: string): HTMLElement {
   const lineCount = f.patch ? f.patch.split("\n").length : 0;
   const big = LOCKFILE.test(f.path) || lineCount > 400;
   const collapsed = f.viewed || big;
   const wrap = el("div", `file${f.viewed ? " viewed" : ""}`);
+  wrap.dataset.path = f.path;
   const head = el("div", "file-head");
   const caret = el("span", "caret", collapsed ? "▸" : "▾");
-  const path = el("span", "path", f.path);
-  const tag = el("span", "tag", f.binary ? "binary" : big ? `${lineCount} lines — collapsed` : "");
+  const { label: path, tag: moveTag } = renamePath(f);
+  const tag = el(
+    "span",
+    "tag",
+    f.binary ? "binary" : big ? `${lineCount} lines — collapsed` : moveTag,
+  );
+  if (moveTag && !f.binary && !big) tag.classList.add("move");
   const chk = el("label", "viewed-chk");
   const cbox = document.createElement("input");
   cbox.type = "checkbox";
@@ -706,6 +745,86 @@ function renderFile(f: FileView, mode: string): HTMLElement {
   return wrap;
 }
 
+// File-tree sidebar (GitLab style): collapsible directories, click a file to jump
+// to its diff card. Collapse state and visibility survive re-renders.
+let treeVisible = true;
+const collapsedDirs = new Set<string>();
+
+function revealFile(path: string): void {
+  const card = document.querySelector<HTMLElement>(`.file[data-path="${CSS.escape(path)}"]`);
+  if (!card) return;
+  // Viewed and oversized files render collapsed — jumping to a closed header looks
+  // like nothing happened, so open it on the way in.
+  const diff = card.querySelector<HTMLElement>(".diff");
+  if (diff?.style.display === "none") {
+    diff.style.display = "block";
+    const caret = card.querySelector<HTMLElement>(".caret");
+    if (caret) caret.textContent = "▾";
+  }
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function treeRows(node: FileTreeNode, depth: number, byPath: Map<string, FileView>): HTMLElement[] {
+  const row = el("div", `node ${node.kind}`);
+  row.style.paddingLeft = `${0.3 + depth * 0.7}rem`;
+
+  if (node.kind === "dir") {
+    const open = !collapsedDirs.has(node.path);
+    row.append(el("span", "tcaret", open ? "▾" : "▸"), el("span", "nm", node.name));
+    row.onclick = () => {
+      if (open) collapsedDirs.add(node.path);
+      else collapsedDirs.delete(node.path);
+      render();
+    };
+    const kids = el("div", "tkids");
+    kids.style.display = open ? "block" : "none";
+    kids.append(...node.children.flatMap((c) => treeRows(c, depth + 1, byPath)));
+    return [row, kids];
+  }
+
+  row.append(el("span", "nm", node.name));
+  const f = byPath.get(node.path);
+  if (!f) return [row];
+  if (f.viewed) row.classList.add("viewed");
+  if (f.oldPath) row.classList.add("moved");
+  const stat = el("span", "stat");
+  const openThreads = f.threads.filter((t) => !t.resolved).length;
+  if (openThreads > 0) stat.append(el("span", "cmt", `💬${openThreads} `));
+  if (!f.binary) {
+    const { add, del } = diffStat(f.patch);
+    if (add > 0) stat.append(el("span", "add", `+${add}`));
+    if (add > 0 && del > 0) stat.append(document.createTextNode(" "));
+    if (del > 0) stat.append(el("span", "del", `−${del}`));
+  }
+  row.append(stat);
+  row.title = f.oldPath ? `${f.oldPath} → ${f.path}` : f.path;
+  row.onclick = () => {
+    revealFile(f.path);
+  };
+  return [row];
+}
+
+function renderTree(files: FileView[]): void {
+  const root = document.getElementById("tree");
+  if (!root) return;
+  root.innerHTML = "";
+  const viewedCount = files.filter((f) => f.viewed).length;
+  const head = el("div", "tree-head");
+  head.append(el("span", "nm", `${files.length} file${files.length === 1 ? "" : "s"}`));
+  if (viewedCount > 0) head.append(el("span", "stat", `${viewedCount} viewed`));
+  root.append(head);
+  const byPath = new Map(files.map((f) => [f.path, f]));
+  for (const node of buildFileTree(files.map((f) => f.path))) {
+    root.append(...treeRows(node, 0, byPath));
+  }
+}
+
+function setTreeVisible(visible: boolean): void {
+  treeVisible = visible;
+  document.getElementById("main")?.classList.toggle("tree-hidden", !visible);
+  document.getElementById("treeToggle")?.classList.toggle("on", visible);
+}
+
 function render(): void {
   if (!state) return;
   const round = document.getElementById("round");
@@ -724,6 +843,7 @@ function render(): void {
   const root = document.getElementById("files");
   if (!root) return;
   root.innerHTML = "";
+  renderTree(state.files);
   if (!state.files.length) {
     root.append(el("div", "empty", "no changes in the worktree"));
     return;
@@ -751,6 +871,14 @@ bindButton("approve", "approve");
 bindButton("requestChanges", "requestChanges");
 bindButton("clarify", "clarify");
 bindButton("toggle", "toggleViewMode");
+
+const treeToggle = document.getElementById("treeToggle");
+if (treeToggle) {
+  treeToggle.onclick = () => {
+    setTreeVisible(!treeVisible);
+  };
+}
+setTreeVisible(treeVisible);
 
 // Native text selection → floating "Comment" bubble. Select any code (part of a
 // line or across lines) and a bubble offers to comment on the spanned range.
