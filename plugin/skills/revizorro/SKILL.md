@@ -37,6 +37,12 @@ windows are skipped and cleaned up automatically.
 
    It blocks. When it returns, parse the single JSON event from stdout.
 
+   Add `--staged-only` when the worktree also holds scratch work that is not part
+   of what you are submitting. The review then covers the branch's commits plus
+   whatever is `git add`-ed; unstaged edits and untracked files stay out. Stage
+   exactly the change you want reviewed, then keep the flag on every call of that
+   round (`--push` included) so the diff does not flip back mid-review.
+
 2. Branch on `event.type`:
 
    - **`question`** `{ threadId, file, side, range, body }` — the human asked you
@@ -115,3 +121,10 @@ the diff. Either array may be empty.
 - On `approved`, the review gate has passed — you may merge the worktree.
 - On `closed`, the human left without deciding — ask the user; never merge and
   never silently re-loop.
+- A verdict is never lost between calls. If the human decided while you were not
+  blocked on `review`, the next `revizorro review --worktree` returns that
+  decision instead of opening a new round — so an approval that arrived while you
+  were busy still reaches you.
+- `revizorro review --check` is a cheap preflight: exit 10 means the diff has
+  something to review, exit 0 means it is empty. It touches no VS Code window, so
+  use it before opening a form on an empty change. It honours `--staged-only`.

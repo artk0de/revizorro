@@ -160,6 +160,9 @@ export class ReviewHost {
     const next = applyPush(cur, push, () => `t${++n}`);
     for (const r of push.replies) this.pending.delete(r.threadId);
     await c.store.save(next);
+    // A push can be the first call on a fresh context (e.g. the agent flipped
+    // --staged-only mid-round), and rendering that cache empty would blank the form.
+    if (c.lastDiff.length === 0) c.lastDiff = await c.diff.diff(c.worktreeId);
     // An agent push during an OPEN review must (re)show the form — the human may
     // have closed or reloaded the window (e.g. mid-Clarify). A decided session
     // (approved/changes_requested) stays closed: onState only re-renders if open.
