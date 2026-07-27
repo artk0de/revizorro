@@ -36,7 +36,9 @@ async function main() {
   if (argv.includes("--check")) {
     const { exitCode } = await runReview(argv, {
       transport: null,
-      diff: new GitDiffProvider(repoRoot),
+      diff: new GitDiffProvider(repoRoot, undefined, {
+        stagedOnly: argv.includes("--staged-only"),
+      }),
       worktreeId,
       repoRoot,
       readPush,

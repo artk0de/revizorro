@@ -33,6 +33,19 @@ describe("HTTP transport contract", () => {
     });
     expect(reviews).toEqual(["wt1"]);
   });
+  it("carries the stagedOnly option from the client to the host", async () => {
+    host = new HttpReviewHost();
+    const port = await host.start();
+    const seen: (boolean | undefined)[] = [];
+    host.onReview((wt, _repoRoot, opts) => {
+      seen.push(opts?.stagedOnly);
+      host.emit(wt, { type: "idle" });
+    });
+    const client = new HttpReviewClient(port);
+    await client.review("wt1", "/repo", undefined, { stagedOnly: true });
+    await client.review("wt1", "/repo");
+    expect(seen).toEqual([true, undefined]);
+  });
   it("surfaces a client push to the host", async () => {
     host = new HttpReviewHost();
     const port = await host.start();

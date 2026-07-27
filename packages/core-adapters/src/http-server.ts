@@ -1,21 +1,29 @@
 import { createServer, type Server } from "node:http";
 import type { ReviewEvent } from "@revizorro/protocol";
 import { PushPayload } from "@revizorro/protocol";
+import type { ReviewOptions } from "@revizorro/core";
 
 type Waiter = (e: ReviewEvent) => void;
 
 export class HttpReviewHost {
   private server?: Server;
   private readonly waiters = new Map<string, Waiter[]>();
-  private onPushReceived?: (worktreeId: string, repoRoot: string, push: PushPayload) => void;
-  private onReviewRequest?: (worktreeId: string, repoRoot: string) => void;
+  private onPushReceived?: (
+    worktreeId: string,
+    repoRoot: string,
+    push: PushPayload,
+    opts: ReviewOptions,
+  ) => void;
+  private onReviewRequest?: (worktreeId: string, repoRoot: string, opts: ReviewOptions) => void;
 
-  onPush(cb: (worktreeId: string, repoRoot: string, push: PushPayload) => void): void {
+  onPush(
+    cb: (worktreeId: string, repoRoot: string, push: PushPayload, opts: ReviewOptions) => void,
+  ): void {
     this.onPushReceived = cb;
   }
 
   /** Fires on every `review` request — lets the host review the requested repoRoot. */
-  onReview(cb: (worktreeId: string, repoRoot: string) => void): void {
+  onReview(cb: (worktreeId: string, repoRoot: string, opts: ReviewOptions) => void): void {
     this.onReviewRequest = cb;
   }
 
@@ -37,10 +45,11 @@ export class HttpReviewHost {
         body += chunk.toString();
       });
       req.on("end", () => {
-        const { worktreeId, repoRoot, push } = JSON.parse(body || "{}") as {
+        const { worktreeId, repoRoot, push, opts } = JSON.parse(body || "{}") as {
           worktreeId: string;
           repoRoot: string;
           push?: unknown;
+          opts?: ReviewOptions;
         };
         // Register the response waiter BEFORE invoking onPushReceived: a push handler may
         // synchronously emit an event, which must find a waiting client.
@@ -53,9 +62,9 @@ export class HttpReviewHost {
         // A push is a reply delivery; a plain review is a request to (re)open the
         // form — so a late push can never resurrect a closed form.
         if (push === undefined) {
-          this.onReviewRequest?.(worktreeId, repoRoot);
+          this.onReviewRequest?.(worktreeId, repoRoot, opts ?? {});
         } else {
-          this.onPushReceived?.(worktreeId, repoRoot, PushPayload.parse(push));
+          this.onPushReceived?.(worktreeId, repoRoot, PushPayload.parse(push), opts ?? {});
         }
       });
     });

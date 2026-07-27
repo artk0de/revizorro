@@ -10,8 +10,19 @@ export interface DiffProvider {
   diff: (worktreeId: string) => Promise<DiffFile[]>;
 }
 
+/** Per-call review knobs the agent picks on the command line. */
+export interface ReviewOptions {
+  /** Review the index (committed + staged) instead of the whole worktree. */
+  stagedOnly?: boolean;
+}
+
 export interface ReviewTransport {
-  review: (worktreeId: string, repoRoot: string, push?: PushPayload) => Promise<ReviewEvent>;
+  review: (
+    worktreeId: string,
+    repoRoot: string,
+    push?: PushPayload,
+    opts?: ReviewOptions,
+  ) => Promise<ReviewEvent>;
 }
 
 export interface FormPort {

@@ -20,6 +20,9 @@ const USAGE = [
   "  revizorro review --worktree      start or continue a review round (blocks for one event)",
   "  revizorro review --push <file>   deliver an agent reply/comment, then block for the next event",
   "  revizorro review --check         exit 10 if the worktree has a diff, 0 if empty (no form, no host)",
+  "",
+  "Options:",
+  "  --staged-only                    review only committed + staged changes (skip unstaged and untracked)",
 ].join("\n");
 
 export async function runReview(
@@ -38,6 +41,8 @@ export async function runReview(
   }
   const pushIdx = argv.indexOf("--push");
   const push = pushIdx >= 0 ? deps.readPush(argv[pushIdx + 1]) : undefined;
-  const event = await deps.transport.review(deps.worktreeId, deps.repoRoot, push);
+  const event = await deps.transport.review(deps.worktreeId, deps.repoRoot, push, {
+    stagedOnly: argv.includes("--staged-only"),
+  });
   return { stdout: JSON.stringify(event), exitCode: 0 };
 }

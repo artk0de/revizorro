@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { runReview } from "../src/index.js";
-import type { ReviewTransport } from "@revizorro/core";
+import type { ReviewOptions, ReviewTransport } from "@revizorro/core";
 import type { PushPayload, ReviewEvent } from "@revizorro/protocol";
 
 const fakeTransport = (event: ReviewEvent): ReviewTransport => ({ review: async () => event });
@@ -64,6 +64,38 @@ describe("runReview", () => {
     });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toBe("");
+  });
+  it("forwards --staged-only so only the index gets reviewed", async () => {
+    let opts: ReviewOptions | undefined;
+    const transport: ReviewTransport = {
+      review: async (_wt, _repoRoot, _push, o) => {
+        opts = o;
+        return { type: "idle" };
+      },
+    };
+    await runReview(["review", "--worktree", "--staged-only"], {
+      transport,
+      worktreeId: "wt1",
+      repoRoot: "/repo",
+      readPush: () => ({ replies: [], comments: [] }),
+    });
+    expect(opts).toEqual({ stagedOnly: true });
+  });
+  it("reviews the whole worktree when --staged-only is absent", async () => {
+    let opts: ReviewOptions | undefined;
+    const transport: ReviewTransport = {
+      review: async (_wt, _repoRoot, _push, o) => {
+        opts = o;
+        return { type: "idle" };
+      },
+    };
+    await runReview(["review", "--worktree"], {
+      transport,
+      worktreeId: "wt1",
+      repoRoot: "/repo",
+      readPush: () => ({ replies: [], comments: [] }),
+    });
+    expect(opts).toEqual({ stagedOnly: false });
   });
   it("exits 2 on an unknown command", async () => {
     const r = await runReview(["bogus"], {

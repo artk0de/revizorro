@@ -1,6 +1,6 @@
 import { request } from "node:http";
 import { ReviewEvent, type PushPayload } from "@revizorro/protocol";
-import type { ReviewTransport } from "@revizorro/core";
+import type { ReviewOptions, ReviewTransport } from "@revizorro/core";
 
 export class HttpReviewClient implements ReviewTransport {
   constructor(
@@ -8,8 +8,13 @@ export class HttpReviewClient implements ReviewTransport {
     private readonly host = "127.0.0.1",
   ) {}
 
-  async review(worktreeId: string, repoRoot: string, push?: PushPayload): Promise<ReviewEvent> {
-    const payload = JSON.stringify({ worktreeId, repoRoot, push });
+  async review(
+    worktreeId: string,
+    repoRoot: string,
+    push?: PushPayload,
+    opts?: ReviewOptions,
+  ): Promise<ReviewEvent> {
+    const payload = JSON.stringify({ worktreeId, repoRoot, push, opts });
     return new Promise((resolve, reject) => {
       const req = request(
         {

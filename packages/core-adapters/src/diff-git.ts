@@ -7,10 +7,27 @@ import type { DiffProvider, DiffFile } from "@revizorro/core";
 
 const exec = promisify(execFile);
 
+export interface GitDiffOptions {
+  /**
+   * Review the index instead of the worktree: only what is committed on the branch
+   * plus what is `git add`-ed. Unstaged edits and untracked files stay out, so an
+   * agent can put exactly the change it wants reviewed into the index.
+   */
+  stagedOnly?: boolean;
+}
+
+/** One row of `git diff --name-status`: `M\tpath` or, for renames, `R100\told\tnew`. */
+interface StatusRow {
+  status: string;
+  from: string;
+  to?: string;
+}
+
 export class GitDiffProvider implements DiffProvider {
   constructor(
     private readonly repoRoot: string,
     private readonly baseRef?: string,
+    private readonly options: GitDiffOptions = {},
   ) {}
 
   /**
@@ -46,6 +63,16 @@ export class GitDiffProvider implements DiffProvider {
     return stdout;
   }
 
+  /** Run git for binary-safe output (file contents read out of the index). */
+  private async gitBytes(...args: string[]): Promise<Buffer> {
+    const { stdout } = await exec("git", args, {
+      cwd: this.repoRoot,
+      maxBuffer: 64 * 1024 * 1024,
+      encoding: "buffer",
+    });
+    return stdout;
+  }
+
   /** Run git, returning stdout even when the command exits non-zero (e.g. `diff --no-index`). */
   private async gitAllowFail(...args: string[]): Promise<string> {
     try {
@@ -55,32 +82,88 @@ export class GitDiffProvider implements DiffProvider {
     }
   }
 
+  private parseNameStatus(out: string): StatusRow[] {
+    const rows: StatusRow[] = [];
+    for (const line of out.split("\n")) {
+      const [status, from, to] = line.split("\t");
+      if (!status || !from) continue;
+      rows.push({ status, from, to: to || undefined });
+    }
+    return rows;
+  }
+
+  /** Walk the rename chain back to the path this file was originally created under. */
+  private originOf(path: string, renames: Map<string, string>): string | undefined {
+    const seen = new Set([path]);
+    let origin: string | undefined;
+    let cur = renames.get(path);
+    while (cur && !seen.has(cur)) {
+      origin = cur;
+      seen.add(cur);
+      cur = renames.get(cur);
+    }
+    return origin;
+  }
+
   async diff(_worktreeId: string): Promise<DiffFile[]> {
+    const staged = this.options.stagedOnly === true;
     const base = (await this.git("merge-base", await this.resolveBase(), "HEAD")).trim();
-    const committed = await this.git("diff", "--name-only", base, "HEAD");
-    const uncommitted = await this.git("diff", "--name-only", "HEAD");
-    const untrackedOut = await this.git("ls-files", "--others", "--exclude-standard");
+    // --name-status -M keeps the rename pairs that --name-only collapses away, so a
+    // moved file can be shown as `old → new` instead of a brand-new file.
+    const committed = await this.git("diff", "--name-status", "-M", base, "HEAD");
+    const working = staged
+      ? await this.git("diff", "--cached", "--name-status", "-M", "HEAD")
+      : await this.git("diff", "--name-status", "-M", "HEAD");
+    // Untracked files are worktree-only by definition — `git add` puts them in the
+    // index, where the --cached listing above already picks them up.
+    const untrackedOut = staged
+      ? ""
+      : await this.git("ls-files", "--others", "--exclude-standard");
     const untracked = new Set(untrackedOut.split("\n").filter(Boolean));
-    const paths = new Set(
-      [committed, uncommitted, untrackedOut].flatMap((s) => s.split("\n")).filter(Boolean),
-    );
+
+    const rows = [
+      ...this.parseNameStatus(committed),
+      ...this.parseNameStatus(working),
+      ...[...untracked].map((from): StatusRow => ({ status: "A", from })),
+    ];
+    const renames = new Map<string, string>();
+    for (const r of rows) if (r.to && /^[RC]/.test(r.status)) renames.set(r.to, r.from);
+    const paths = new Set(rows.map((r) => r.to ?? r.from));
+    // A rename's source only exists as the left half of the pair — never as a file
+    // of its own (it may still be listed by the other diff as a plain change).
+    for (const r of rows) if (r.to) paths.delete(r.from);
 
     const files: DiffFile[] = [];
     for (const path of paths) {
+      const oldPath = this.originOf(path, renames);
       let contentHash = "";
       let content: string | undefined;
       try {
-        const bytes = await readFile(join(this.repoRoot, path));
+        const bytes = staged
+          ? await this.gitBytes("show", `:${path}`)
+          : await readFile(join(this.repoRoot, path));
         contentHash = createHash("sha1").update(bytes).digest("hex");
         content = bytes.toString("utf8");
       } catch {
         // deleted file → empty hash, no content
       }
+      // Passing BOTH sides of a rename keeps git's rename detection alive under a
+      // pathspec; a single path would render the move as a full-content addition.
+      const pathspec = oldPath ? [oldPath, path] : [path];
       const patch = untracked.has(path)
         ? await this.gitAllowFail("diff", "--no-index", "--", "/dev/null", path)
-        : await this.gitAllowFail("diff", base, "--", path);
+        : staged
+          ? await this.gitAllowFail("diff", "--cached", "-M", base, "--", ...pathspec)
+          : await this.gitAllowFail("diff", "-M", base, "--", ...pathspec);
       const binary = /Binary files|GIT binary patch/.test(patch);
-      files.push({ path, contentHash, patch, binary, content: binary ? undefined : content });
+      files.push({
+        path,
+        oldPath,
+        contentHash,
+        patch,
+        binary,
+        content: binary ? undefined : content,
+      });
     }
     return files.sort((a, b) => a.path.localeCompare(b.path));
   }

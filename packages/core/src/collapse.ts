@@ -2,6 +2,8 @@ import type { FileViewState } from "@revizorro/protocol";
 
 export interface DiffFile {
   path: string;
+  /** Where the file used to live, when git detected a rename/move. */
+  oldPath?: string;
   contentHash: string;
   /** Raw unified `git diff` body for the file (worktree vs merge-base). Transient — not persisted. */
   patch?: string;
