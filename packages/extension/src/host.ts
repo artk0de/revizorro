@@ -1,11 +1,27 @@
 import { HttpReviewHost, FsSessionStore, GitDiffProvider } from "@revizorro/core-adapters";
-import { startRound, applyPush, applyDecision, editMessage, type DiffFile } from "@revizorro/core";
-import type { SessionState, FileRange, PushPayload, Side } from "@revizorro/protocol";
+import {
+  startRound,
+  applyPush,
+  applyDecision,
+  markVerdictDelivered,
+  editMessage,
+  type DiffFile,
+  type ReviewOptions,
+} from "@revizorro/core";
+import type {
+  SessionState,
+  FileRange,
+  PushPayload,
+  ReviewEvent,
+  Side,
+} from "@revizorro/protocol";
 
 /** Everything needed to review one repoRoot; rebuilt when the CLI targets another. */
 interface ReviewCtx {
   repoRoot: string;
   worktreeId: string;
+  /** The CLI asked to review the index only — unstaged edits stay out of the diff. */
+  stagedOnly: boolean;
   store: FsSessionStore;
   diff: GitDiffProvider;
   lastDiff: DiffFile[];
@@ -28,12 +44,12 @@ export class ReviewHost {
     private readonly onState: (s: SessionState, diff: DiffFile[]) => void,
     private readonly onOpen: (s: SessionState, diff: DiffFile[]) => void,
   ) {
-    this.events.onPush((wt, repoRoot, push) => {
-      void this.handlePush(this.ctx(repoRoot, wt), push);
+    this.events.onPush((wt, repoRoot, push, opts) => {
+      void this.handlePush(this.ctx(repoRoot, wt, opts), push);
     });
     // The form appears when the agent runs `review` — not on activation/reload.
-    this.events.onReview((wt, repoRoot) => {
-      void this.openForReview(this.ctx(repoRoot, wt));
+    this.events.onReview((wt, repoRoot, opts) => {
+      void this.openForReview(this.ctx(repoRoot, wt, opts));
     });
   }
 
@@ -50,13 +66,17 @@ export class ReviewHost {
   }
 
   /** Get (or build) the session context for a repoRoot, making it the active review. */
-  private ctx(repoRoot: string, worktreeId: string): ReviewCtx {
-    if (this.current?.repoRoot !== repoRoot) {
+  private ctx(repoRoot: string, worktreeId: string, opts: ReviewOptions = {}): ReviewCtx {
+    const stagedOnly = opts.stagedOnly === true;
+    // The diff source is baked into the provider, so switching --staged-only mid-flight
+    // has to rebuild the context (and drop the cached diff) rather than reuse it.
+    if (this.current?.repoRoot !== repoRoot || this.current.stagedOnly !== stagedOnly) {
       this.current = {
         repoRoot,
         worktreeId,
+        stagedOnly,
         store: new FsSessionStore(repoRoot),
-        diff: new GitDiffProvider(repoRoot),
+        diff: new GitDiffProvider(repoRoot, undefined, { stagedOnly }),
         lastDiff: [],
       };
     }
@@ -78,10 +98,49 @@ export class ReviewHost {
     if (cur?.status === "open") {
       if (c.lastDiff.length === 0) c.lastDiff = await c.diff.diff(c.worktreeId);
       this.onOpen(cur, c.lastDiff);
-    } else {
-      const s = await this.newRound(c);
-      this.onOpen(s, c.lastDiff);
+      return;
     }
+    // A decided round whose verdict never reached an agent — the human approved
+    // while nothing was blocked on `review`, so the event went nowhere. Replay it
+    // instead of quietly opening a new round on top of a decision nobody saw.
+    if (cur && !cur.verdictDelivered) {
+      await c.store.save(markVerdictDelivered(cur));
+      this.events.emit(c.worktreeId, this.verdictEvent(cur));
+      return;
+    }
+    const s = await this.newRound(c);
+    this.onOpen(s, c.lastDiff);
+  }
+
+  /** Open threads handed to the agent alongside a verdict (or a clarify request). */
+  private openComments(s: SessionState): {
+    threadId: string;
+    file: string;
+    side: Side;
+    range: FileRange;
+    body: string;
+  }[] {
+    return s.threads
+      .filter((t) => !t.resolved)
+      .map((t) => ({
+        threadId: t.id,
+        file: t.file,
+        side: t.side,
+        range: t.range,
+        body: t.messages.map((m) => m.body).join("\n"),
+      }));
+  }
+
+  private verdictEvent(s: SessionState): ReviewEvent {
+    return s.status === "approved"
+      ? { type: "decision", verdict: "approved", comments: [] }
+      : { type: "decision", verdict: "changes_requested", comments: this.openComments(s) };
+  }
+
+  /** Emit a verdict; if no agent was listening, leave it pending so it can be replayed. */
+  private async deliverVerdict(c: ReviewCtx, s: SessionState): Promise<void> {
+    if (this.events.emit(c.worktreeId, this.verdictEvent(s))) return;
+    await c.store.save({ ...s, verdictDelivered: false });
   }
 
   /** Recompute the diff and open a fresh review round (collapsing unchanged viewed files). */
@@ -108,11 +167,10 @@ export class ReviewHost {
     else this.onState(next, c.lastDiff);
   }
 
-  approve(): void {
+  async approve(): Promise<void> {
     const c = this.current;
     if (!c) return;
-    void this.finalize(c, "approved");
-    this.events.emit(c.worktreeId, { type: "decision", verdict: "approved", comments: [] });
+    await this.deliverVerdict(c, await this.finalize(c, "approved"));
   }
 
   /**
@@ -131,17 +189,7 @@ export class ReviewHost {
   async requestChanges(): Promise<void> {
     const c = this.current;
     if (!c) return;
-    const s = await this.finalize(c, "changes_requested");
-    const comments = s.threads
-      .filter((t) => !t.resolved)
-      .map((t) => ({
-        threadId: t.id,
-        file: t.file,
-        side: t.side,
-        range: t.range,
-        body: t.messages.map((m) => m.body).join("\n"),
-      }));
-    this.events.emit(c.worktreeId, { type: "decision", verdict: "changes_requested", comments });
+    await this.deliverVerdict(c, await this.finalize(c, "changes_requested"));
   }
 
   /**
@@ -153,17 +201,13 @@ export class ReviewHost {
     if (!c) return;
     const cur = await c.store.load(c.worktreeId);
     if (!cur) return;
-    const open = cur.threads.filter((t) => !t.resolved);
-    for (const t of open) this.pending.add(t.id);
+    for (const t of cur.threads.filter((t) => !t.resolved)) this.pending.add(t.id);
     this.onState(cur, c.lastDiff);
-    const comments = open.map((t) => ({
-      threadId: t.id,
-      file: t.file,
-      side: t.side,
-      range: t.range,
-      body: t.messages.map((m) => m.body).join("\n"),
-    }));
-    this.events.emit(c.worktreeId, { type: "decision", verdict: "clarify", comments });
+    this.events.emit(c.worktreeId, {
+      type: "decision",
+      verdict: "clarify",
+      comments: this.openComments(cur),
+    });
   }
 
   /**
@@ -273,7 +317,10 @@ export class ReviewHost {
     verdict: "approved" | "changes_requested",
   ): Promise<SessionState> {
     const cur = (await c.store.load(c.worktreeId)) ?? (await this.newRound(c));
-    const next = applyDecision(cur, verdict);
+    // Persisted as delivered up front: the agent re-reads the session as soon as the
+    // event lands, and must never find a verdict that still looks pending — that
+    // would replay it a second time. deliverVerdict undoes this if nobody listened.
+    const next = markVerdictDelivered(applyDecision(cur, verdict));
     await c.store.save(next);
     return next;
   }

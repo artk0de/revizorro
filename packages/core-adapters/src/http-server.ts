@@ -27,10 +27,13 @@ export class HttpReviewHost {
     this.onReviewRequest = cb;
   }
 
-  emit(worktreeId: string, event: ReviewEvent): void {
+  /** Hand the event to one blocked agent. Returns false when nobody was waiting. */
+  emit(worktreeId: string, event: ReviewEvent): boolean {
     const q = this.waiters.get(worktreeId);
     const next = q?.shift();
-    if (next) next(event);
+    if (!next) return false;
+    next(event);
+    return true;
   }
 
   async start(): Promise<number> {

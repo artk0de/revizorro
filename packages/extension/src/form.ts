@@ -97,7 +97,7 @@ export class ReviewForm {
           if (this.lastMessage) void this.panel?.webview.postMessage(this.lastMessage);
         } else if (m.type === "approve") {
           this.decided = true;
-          this.host.approve();
+          void this.host.approve();
           this.panel?.dispose();
         } else if (m.type === "requestChanges") {
           this.decided = true;

@@ -46,6 +46,17 @@ describe("HTTP transport contract", () => {
     await client.review("wt1", "/repo");
     expect(seen).toEqual([true, undefined]);
   });
+  it("reports whether an emitted event actually reached a waiting agent", async () => {
+    host = new HttpReviewHost();
+    const port = await host.start();
+    // Nobody is blocked on this worktree — the verdict would be lost.
+    expect(host.emit("wt1", { type: "decision", verdict: "approved", comments: [] })).toBe(false);
+    const client = new HttpReviewClient(port);
+    const pending = client.review("wt1", "/repo");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(host.emit("wt1", { type: "decision", verdict: "approved", comments: [] })).toBe(true);
+    await pending;
+  });
   it("surfaces a client push to the host", async () => {
     host = new HttpReviewHost();
     const port = await host.start();

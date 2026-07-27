@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { startRound, applyDecision } from "../src/index.js";
+import { startRound, applyDecision, markVerdictDelivered } from "../src/index.js";
 import type { SessionState } from "@revizorro/protocol";
 
 describe("startRound", () => {
@@ -44,5 +44,20 @@ describe("applyDecision", () => {
   it("sets status to approved", () => {
     const s = startRound(null, "wt1", []);
     expect(applyDecision(s, "approved").status).toBe("approved");
+  });
+  it("leaves a fresh verdict undelivered so a missed decision can be replayed", () => {
+    const s = applyDecision(startRound(null, "wt1", []), "approved");
+    expect(s.verdictDelivered).toBe(false);
+  });
+  it("marks the verdict delivered once an agent has received it", () => {
+    const s = markVerdictDelivered(applyDecision(startRound(null, "wt1", []), "approved"));
+    expect(s.verdictDelivered).toBe(true);
+    expect(s.status).toBe("approved");
+  });
+  it("clears the delivery flag when the next round opens", () => {
+    const decided = applyDecision(startRound(null, "wt1", []), "changes_requested");
+    const next = startRound(decided, "wt1", [{ path: "a.ts", contentHash: "h1" }]);
+    expect(next.status).toBe("open");
+    expect(next.verdictDelivered).toBe(false);
   });
 });
