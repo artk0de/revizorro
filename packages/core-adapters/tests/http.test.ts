@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { HttpReviewHost, HttpReviewClient } from "../src/index.js";
+import { createServer } from "node:http";
+import { HttpReviewHost, HttpReviewClient, isDeadHostError } from "../src/index.js";
 
 let host: HttpReviewHost;
 afterEach(async () => {
@@ -57,6 +58,58 @@ describe("HTTP transport contract", () => {
     expect(host.emit("wt1", { type: "decision", verdict: "approved", comments: [] })).toBe(true);
     await pending;
   });
+  it("releases a blocked agent when the host shuts down", async () => {
+    host = new HttpReviewHost();
+    const port = await host.start();
+    const client = new HttpReviewClient(port);
+    const pending = client.review("wt1", "/repo");
+    await new Promise((r) => setTimeout(r, 20));
+    // The window reloads / the extension updates → the host goes away mid-poll.
+    await host.stop();
+    const err = await pending.then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).not.toBeNull();
+    expect(isDeadHostError(err)).toBe(true);
+  });
+
+  it("reads an empty response as a dead host rather than a parse error", async () => {
+    // A bare server that answers 200 with no body — what a half-dead host looks like.
+    const bare = createServer((_req, res) => {
+      res.end();
+    });
+    const port = await new Promise<number>((r) =>
+      bare.listen(0, "127.0.0.1", () => {
+        r((bare.address() as { port: number }).port);
+      }),
+    );
+    const err = await new HttpReviewClient(port).review("wt1", "/repo").then(
+      () => null,
+      (e: unknown) => e,
+    );
+    bare.close();
+    expect(isDeadHostError(err)).toBe(true);
+  });
+
+  it("does not mistake a protocol error for a dead host", async () => {
+    const bare = createServer((_req, res) => {
+      res.end('{"type":"nonsense"}');
+    });
+    const port = await new Promise<number>((r) =>
+      bare.listen(0, "127.0.0.1", () => {
+        r((bare.address() as { port: number }).port);
+      }),
+    );
+    const err = await new HttpReviewClient(port).review("wt1", "/repo").then(
+      () => null,
+      (e: unknown) => e,
+    );
+    bare.close();
+    expect(err).not.toBeNull();
+    expect(isDeadHostError(err)).toBe(false);
+  });
+
   it("surfaces a client push to the host", async () => {
     host = new HttpReviewHost();
     const port = await host.start();

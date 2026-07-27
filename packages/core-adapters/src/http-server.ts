@@ -80,12 +80,16 @@ export class HttpReviewHost {
   }
 
   async stop(): Promise<void> {
+    const server = this.server;
+    if (!server) return;
+    // Every waiting agent holds an open long poll by design, and close() waits for
+    // in-flight requests — so without this the shutdown never completes and each
+    // blocked agent hangs until the process itself dies.
+    server.closeAllConnections();
     return new Promise((r) =>
-      this.server
-        ? this.server.close(() => {
-            r();
-          })
-        : r(),
+      server.close(() => {
+        r();
+      }),
     );
   }
 }

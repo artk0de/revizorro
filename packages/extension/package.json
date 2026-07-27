@@ -3,7 +3,7 @@
   "displayName": "revizorro",
   "description": "Pre-merge AI code review in VS Code — an AI agent reviews your worktree diff GitHub-PR-style (inline comments, threads, Ask-agent, approve/decline) and applies fixes until you approve. No GitHub required.",
   "publisher": "revizorro",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "type": "module",
   "main": "./dist/extension.cjs",
   "license": "MIT",

@@ -6,6 +6,7 @@ import {
   GitDiffProvider,
   orderedHosts,
   unregisterHost,
+  isDeadHostError,
 } from "@revizorro/core-adapters";
 import { PushPayload } from "@revizorro/protocol";
 import { runReview, resolveWorktreeId } from "@revizorro/cli";
@@ -65,8 +66,10 @@ async function main() {
       if (stdout) process.stdout.write(`${stdout}\n`);
       process.exit(exitCode);
     } catch (err) {
-      // Dead host (window closed) → drop the stale registry entry and try the next.
-      if (err && err.code === "ECONNREFUSED") {
+      // The window is gone — closed, reloaded, or its extension was updated while
+      // we were blocked on the long poll (that arrives as ECONNRESET, not
+      // ECONNREFUSED). Drop the stale registry entry and try the next window.
+      if (isDeadHostError(err)) {
         unregisterHost(port);
         continue;
       }
@@ -74,7 +77,8 @@ async function main() {
     }
   }
   throw new Error(
-    `no live revizorro window (tried ${ports.length}) — reload a VS Code window with the extension`,
+    `no live revizorro window (tried ${ports.length}) — a window was reloaded or its ` +
+      `extension updated mid-review. Reload a VS Code window with the extension, then re-run review`,
   );
 }
 

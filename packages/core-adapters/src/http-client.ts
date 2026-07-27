@@ -2,6 +2,27 @@ import { request } from "node:http";
 import { ReviewEvent, type PushPayload } from "@revizorro/protocol";
 import type { ReviewOptions, ReviewTransport } from "@revizorro/core";
 
+/**
+ * Socket-level failures that mean "this review window is gone" — it closed, was
+ * reloaded, or the extension was updated while the agent was blocked in a long
+ * poll. Callers drop the stale registry entry and try the next window; anything
+ * else (a host that answered something unparseable) is a real error worth raising.
+ */
+const DEAD_HOST_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ECONNABORTED",
+  "EPIPE",
+  "ETIMEDOUT",
+  "EHOSTUNREACH",
+  "ENOTFOUND",
+]);
+
+export function isDeadHostError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null | undefined)?.code;
+  return typeof code === "string" && DEAD_HOST_CODES.has(code);
+}
+
 export class HttpReviewClient implements ReviewTransport {
   constructor(
     private readonly port: number,
@@ -33,6 +54,16 @@ export class HttpReviewClient implements ReviewTransport {
             body += chunk.toString();
           });
           res.on("end", () => {
+            if (!body.trim()) {
+              // Accepted the request, then went away without answering — same
+              // meaning as a hang-up, so callers treat the window as gone.
+              const gone: NodeJS.ErrnoException = new Error(
+                "review host closed the connection without sending an event",
+              );
+              gone.code = "ECONNRESET";
+              reject(gone);
+              return;
+            }
             try {
               const parsed: unknown = JSON.parse(body);
               resolve(ReviewEvent.parse(parsed));
