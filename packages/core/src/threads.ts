@@ -23,9 +23,12 @@ export function applyPush(
   idGen: () => string,
 ): SessionState {
   const threads = state.threads.map((t) => ({ ...t, messages: [...t.messages] }));
+  const touched = new Set<string>();
   for (const r of payload.replies) {
     const t = threads.find((x) => x.id === r.threadId);
-    if (t) t.messages.push({ author: "agent", body: r.body });
+    if (!t) continue;
+    t.messages.push({ author: "agent", body: r.body });
+    touched.add(t.file);
   }
   for (const c of payload.comments) {
     threads.push({
@@ -36,6 +39,14 @@ export function applyPush(
       messages: [{ author: "agent", body: c.body }],
       resolved: false,
     });
+    touched.add(c.file);
   }
-  return { ...state, threads };
+  // A viewed file renders collapsed, so a fresh agent message inside it would stay
+  // invisible — every file this push touches goes back to un-viewed.
+  const files = { ...state.files };
+  for (const path of touched) {
+    const f = files[path];
+    if (f?.viewed) files[path] = { ...f, viewed: false };
+  }
+  return { ...state, files, threads };
 }

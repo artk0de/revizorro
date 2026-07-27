@@ -84,4 +84,44 @@ describe("applyPush", () => {
     );
     expect(next.threads[0].messages).toHaveLength(1);
   });
+
+  const viewed: SessionState = {
+    ...base,
+    files: {
+      "a.ts": { viewed: true, contentHash: "h1" },
+      "b.ts": { viewed: true, contentHash: "h2" },
+      "c.ts": { viewed: true, contentHash: "h3" },
+    },
+  };
+
+  it("un-views a file when the agent replies in one of its threads", () => {
+    const next = applyPush(
+      viewed,
+      { replies: [{ threadId: "t1", body: "because X" }], comments: [] },
+      () => "g",
+    );
+    expect(next.files["a.ts"].viewed).toBe(false);
+    expect(next.files["a.ts"].contentHash).toBe("h1");
+    expect(next.files["c.ts"].viewed).toBe(true);
+  });
+
+  it("un-views a file when the agent opens a new comment on it", () => {
+    const next = applyPush(
+      viewed,
+      { replies: [], comments: [{ file: "b.ts", range: { startLine: 2, endLine: 4 }, body: "fix" }] },
+      () => "g",
+    );
+    expect(next.files["b.ts"].viewed).toBe(false);
+    expect(next.files["a.ts"].viewed).toBe(true);
+    expect(viewed.files["b.ts"].viewed).toBe(true); // input untouched
+  });
+
+  it("leaves file view state alone when the push touches nothing known", () => {
+    const next = applyPush(
+      viewed,
+      { replies: [{ threadId: "nope", body: "x" }], comments: [] },
+      () => "g",
+    );
+    expect(next.files).toEqual(viewed.files);
+  });
 });
