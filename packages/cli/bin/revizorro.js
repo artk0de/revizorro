@@ -36,9 +36,10 @@ async function main() {
 
   // `--check` is a pure git preflight: no VS Code window required, exit-code only.
   if (argv.includes("--check")) {
+    const baseIdx = argv.indexOf("--base");
     const { exitCode } = await runReview(argv, {
       transport: null,
-      diff: new GitDiffProvider(repoRoot, undefined, {
+      diff: new GitDiffProvider(repoRoot, baseIdx >= 0 ? argv[baseIdx + 1] : undefined, {
         stagedOnly: argv.includes("--staged-only"),
       }),
       worktreeId,

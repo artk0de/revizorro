@@ -97,6 +97,38 @@ describe("runReview", () => {
     });
     expect(opts).toEqual({ stagedOnly: false });
   });
+  it("forwards --base so the review runs against the real target branch", async () => {
+    let opts: ReviewOptions | undefined;
+    const transport: ReviewTransport = {
+      review: async (_wt, _repoRoot, _push, o) => {
+        opts = o;
+        return { type: "idle" };
+      },
+    };
+    await runReview(["review", "--worktree", "--base", "develop"], {
+      transport,
+      worktreeId: "wt1",
+      repoRoot: "/repo",
+      readPush: () => ({ replies: [], comments: [] }),
+    });
+    expect(opts).toEqual({ stagedOnly: false, baseRef: "develop" });
+  });
+  it("leaves the base unset when --base is absent (auto-detect)", async () => {
+    let opts: ReviewOptions | undefined;
+    const transport: ReviewTransport = {
+      review: async (_wt, _repoRoot, _push, o) => {
+        opts = o;
+        return { type: "idle" };
+      },
+    };
+    await runReview(["review", "--worktree"], {
+      transport,
+      worktreeId: "wt1",
+      repoRoot: "/repo",
+      readPush: () => ({ replies: [], comments: [] }),
+    });
+    expect(opts?.baseRef).toBeUndefined();
+  });
   it("exits 2 on an unknown command", async () => {
     const r = await runReview(["bogus"], {
       transport: fakeTransport({ type: "idle" }),

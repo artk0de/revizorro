@@ -107,10 +107,16 @@ export class GitDiffProvider implements DiffProvider {
 
   async diff(_worktreeId: string): Promise<DiffFile[]> {
     const staged = this.options.stagedOnly === true;
-    const base = (await this.git("merge-base", await this.resolveBase(), "HEAD")).trim();
+    // Two different questions, two different baselines. --staged-only asks "review
+    // what I just staged", so the branch's own last commit is the baseline and the
+    // commits already on the branch stay out of it. Plain worktree review asks
+    // "review this branch", so it baselines at the fork point with the target.
+    const base = staged
+      ? "HEAD"
+      : (await this.git("merge-base", await this.resolveBase(), "HEAD")).trim();
     // --name-status -M keeps the rename pairs that --name-only collapses away, so a
     // moved file can be shown as `old → new` instead of a brand-new file.
-    const committed = await this.git("diff", "--name-status", "-M", base, "HEAD");
+    const committed = staged ? "" : await this.git("diff", "--name-status", "-M", base, "HEAD");
     const working = staged
       ? await this.git("diff", "--cached", "--name-status", "-M", "HEAD")
       : await this.git("diff", "--name-status", "-M", "HEAD");

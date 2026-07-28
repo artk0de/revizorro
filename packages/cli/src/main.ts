@@ -22,7 +22,8 @@ const USAGE = [
   "  revizorro review --check         exit 10 if the worktree has a diff, 0 if empty (no form, no host)",
   "",
   "Options:",
-  "  --staged-only                    review only committed + staged changes (skip unstaged and untracked)",
+  "  --staged-only                    review just the staged change, against HEAD (skip unstaged and untracked)",
+  "  --base <ref>                     target branch to review against (default: origin/HEAD, else main/master)",
 ].join("\n");
 
 export async function runReview(
@@ -41,8 +42,10 @@ export async function runReview(
   }
   const pushIdx = argv.indexOf("--push");
   const push = pushIdx >= 0 ? deps.readPush(argv[pushIdx + 1]) : undefined;
+  const baseIdx = argv.indexOf("--base");
   const event = await deps.transport.review(deps.worktreeId, deps.repoRoot, push, {
     stagedOnly: argv.includes("--staged-only"),
+    ...(baseIdx >= 0 && argv[baseIdx + 1] ? { baseRef: argv[baseIdx + 1] } : {}),
   });
   return { stdout: JSON.stringify(event), exitCode: 0 };
 }

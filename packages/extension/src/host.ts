@@ -24,6 +24,8 @@ interface ReviewCtx {
   worktreeId: string;
   /** The CLI asked to review the index only — unstaged edits stay out of the diff. */
   stagedOnly: boolean;
+  /** Target branch the CLI asked to review against ("" = auto-detect). */
+  baseRef: string;
   store: FsSessionStore;
   diff: GitDiffProvider;
   lastDiff: DiffFile[];
@@ -70,15 +72,21 @@ export class ReviewHost {
   /** Get (or build) the session context for a repoRoot, making it the active review. */
   private ctx(repoRoot: string, worktreeId: string, opts: ReviewOptions = {}): ReviewCtx {
     const stagedOnly = opts.stagedOnly === true;
-    // The diff source is baked into the provider, so switching --staged-only mid-flight
-    // has to rebuild the context (and drop the cached diff) rather than reuse it.
-    if (this.current?.repoRoot !== repoRoot || this.current.stagedOnly !== stagedOnly) {
+    const baseRef = opts.baseRef ?? "";
+    // The diff source is baked into the provider, so switching --staged-only or the
+    // target branch mid-flight has to rebuild the context (and drop the cached diff).
+    if (
+      this.current?.repoRoot !== repoRoot ||
+      this.current.stagedOnly !== stagedOnly ||
+      this.current.baseRef !== baseRef
+    ) {
       this.current = {
         repoRoot,
         worktreeId,
         stagedOnly,
+        baseRef,
         store: new FsSessionStore(repoRoot),
-        diff: new GitDiffProvider(repoRoot, undefined, { stagedOnly }),
+        diff: new GitDiffProvider(repoRoot, baseRef || undefined, { stagedOnly }),
         lastDiff: [],
       };
     }

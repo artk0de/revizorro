@@ -12,8 +12,10 @@ export interface DiffProvider {
 
 /** Per-call review knobs the agent picks on the command line. */
 export interface ReviewOptions {
-  /** Review the index (committed + staged) instead of the whole worktree. */
+  /** Review the index against HEAD instead of the branch against its target. */
   stagedOnly?: boolean;
+  /** Target branch to review against; auto-detected when absent. Ignored by --staged-only. */
+  baseRef?: string;
 }
 
 export interface ReviewTransport {

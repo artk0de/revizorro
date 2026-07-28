@@ -37,11 +37,31 @@ windows are skipped and cleaned up automatically.
 
    It blocks. When it returns, parse the single JSON event from stdout.
 
-   Add `--staged-only` when the worktree also holds scratch work that is not part
-   of what you are submitting. The review then covers the branch's commits plus
-   whatever is `git add`-ed; unstaged edits and untracked files stay out. Stage
-   exactly the change you want reviewed, then keep the flag on every call of that
-   round (`--push` included) so the diff does not flip back mid-review.
+   **Reviewing before a commit — the default.** When the work is ready to commit,
+   stage exactly what belongs in that commit and review the staged change first:
+
+   ```bash
+   git add <the files for this commit>
+   revizorro review --staged-only
+   ```
+
+   `--staged-only` baselines against HEAD, so the human sees only what is about to
+   be committed — not the commits already on the branch. Commit only after the
+   review comes back `approved`. Keep the flag on every call of that round
+   (`--push` included) so the diff does not flip mid-review.
+
+   **Reviewing a whole branch.** Without `--staged-only` the review covers the
+   branch against its target: every commit since the fork point plus the dirty
+   worktree. Use this for a deep review of the finished branch.
+
+   **Choosing the target.** The target branch is auto-detected (`origin/HEAD`,
+   else `main`/`master`). When the branch targets something else — a release
+   branch, a stacked branch — say so explicitly, or the review will show unrelated
+   work:
+
+   ```bash
+   revizorro review --worktree --base develop
+   ```
 
 2. Branch on `event.type`:
 
@@ -141,4 +161,7 @@ the diff. Either array may be empty.
   were busy still reaches you.
 - `revizorro review --check` is a cheap preflight: exit 10 means the diff has
   something to review, exit 0 means it is empty. It touches no VS Code window, so
-  use it before opening a form on an empty change. It honours `--staged-only`.
+  use it before opening a form on an empty change. It honours `--staged-only`
+  and `--base`.
+- Review before committing, not after: stage the commit's contents, run
+  `--staged-only`, and commit once it is approved.

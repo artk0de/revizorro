@@ -100,11 +100,54 @@ describe("GitDiffProvider", () => {
     expect(a.patch).not.toContain("999");
     expect(a.content).toBe("export const a = 2;\n");
   });
-  it("stagedOnly still includes changes already committed on the branch", async () => {
+  // --staged-only answers "review what I just staged", so its baseline is the
+  // branch's last commit — NOT the fork point with the target branch. Pulling in
+  // earlier commits of the branch would bury the staged change under old work.
+  it("stagedOnly baselines against HEAD, excluding earlier commits on the branch", async () => {
+    writeFileSync(join(repo, "committed.ts"), "export const c = 1;\n");
+    git(repo, "add", "committed.ts");
+    git(repo, "commit", "-qm", "earlier work on the branch");
+    writeFileSync(join(repo, "staged.ts"), "export const s = 1;\n");
+    git(repo, "add", "staged.ts");
+
+    const files = await new GitDiffProvider(repo, "main", { stagedOnly: true }).diff("wt");
+    expect(files.map((f) => f.path)).toEqual(["staged.ts"]);
+  });
+
+  it("stagedOnly reports nothing when the index matches HEAD", async () => {
     writeFileSync(join(repo, "a.ts"), "export const a = 2;\n");
     git(repo, "commit", "-aqm", "change a");
     const files = await new GitDiffProvider(repo, "main", { stagedOnly: true }).diff("wt");
-    expect(files.map((f) => f.path)).toContain("a.ts");
+    expect(files).toEqual([]);
+  });
+
+  it("worktree mode still reviews the whole branch against the target", async () => {
+    writeFileSync(join(repo, "committed.ts"), "export const c = 1;\n");
+    git(repo, "add", "committed.ts");
+    git(repo, "commit", "-qm", "earlier work on the branch");
+    writeFileSync(join(repo, "dirty.ts"), "export const d = 1;\n");
+
+    const files = await new GitDiffProvider(repo, "main").diff("wt");
+    expect(files.map((f) => f.path).sort()).toEqual(["committed.ts", "dirty.ts"]);
+  });
+
+  it("diffs against an explicitly given target branch, not the default one", async () => {
+    // Branch off a second baseline; reviewing against it must hide main-era work.
+    git(repo, "checkout", "-qb", "target");
+    writeFileSync(join(repo, "on-target.ts"), "export const t = 1;\n");
+    git(repo, "add", "on-target.ts");
+    git(repo, "commit", "-qm", "work that belongs to the target branch");
+    git(repo, "checkout", "-qb", "feature-2");
+    writeFileSync(join(repo, "mine.ts"), "export const m = 1;\n");
+    git(repo, "add", "mine.ts");
+    git(repo, "commit", "-qm", "my work");
+
+    expect((await new GitDiffProvider(repo, "target").diff("wt")).map((f) => f.path)).toEqual([
+      "mine.ts",
+    ]);
+    expect(
+      (await new GitDiffProvider(repo, "main").diff("wt")).map((f) => f.path).sort(),
+    ).toEqual(["mine.ts", "on-target.ts"]);
   });
   it("auto-detects the default branch when no base ref is given (master, no main)", async () => {
     const mrepo = mkdtempSync(join(tmpdir(), "rvz-master-"));
