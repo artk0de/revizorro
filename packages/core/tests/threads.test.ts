@@ -145,3 +145,70 @@ describe("applyPush", () => {
     expect(next.files).toEqual(viewed.files);
   });
 });
+
+describe("batch push", () => {
+  const multi: SessionState = {
+    ...base,
+    files: { "a.ts": { viewed: true, contentHash: "h1" }, "b.ts": { viewed: true, contentHash: "h2" } },
+    threads: [
+      { ...base.threads[0], id: "t1", file: "a.ts" },
+      { ...base.threads[0], id: "t2", file: "a.ts" },
+      { ...base.threads[0], id: "t3", file: "b.ts" },
+    ],
+  };
+
+  // Answering five threads with five pushes costs five blocking waits and leaves
+  // the human watching the rest sit unanswered. One push must settle them all.
+  it("applies replies to several threads in one push", () => {
+    const next = applyPush(
+      multi,
+      {
+        replies: [
+          { threadId: "t1", body: "first answer" },
+          { threadId: "t3", body: "third answer" },
+        ],
+        comments: [],
+      },
+      () => "g",
+    );
+    expect(next.threads[0].messages.at(-1)).toEqual({ author: "agent", body: "first answer" });
+    expect(next.threads[1].messages).toHaveLength(1); // untouched
+    expect(next.threads[2].messages.at(-1)).toEqual({ author: "agent", body: "third answer" });
+  });
+
+  it("un-views every file the batch touched", () => {
+    const next = applyPush(
+      multi,
+      { replies: [{ threadId: "t1", body: "x" }, { threadId: "t3", body: "y" }], comments: [] },
+      () => "g",
+    );
+    expect(next.files["a.ts"].viewed).toBe(false);
+    expect(next.files["b.ts"].viewed).toBe(false);
+  });
+
+  it("mixes replies and brand-new comments in the same push", () => {
+    let n = 0;
+    const next = applyPush(
+      multi,
+      {
+        replies: [{ threadId: "t2", body: "answered" }],
+        comments: [
+          { file: "b.ts", range: { startLine: 9, endLine: 9 }, body: "one more thing" },
+          { file: "a.ts", range: { startLine: 4, endLine: 4 }, body: "and this" },
+        ],
+      },
+      () => `g${++n}`,
+    );
+    expect(next.threads).toHaveLength(5);
+    expect(next.threads.slice(3).map((t) => t.id)).toEqual(["g1", "g2"]);
+  });
+
+  it("ignores unknown thread ids without dropping the rest of the batch", () => {
+    const next = applyPush(
+      multi,
+      { replies: [{ threadId: "nope", body: "lost" }, { threadId: "t1", body: "kept" }], comments: [] },
+      () => "g",
+    );
+    expect(next.threads[0].messages.at(-1)).toEqual({ author: "agent", body: "kept" });
+  });
+});

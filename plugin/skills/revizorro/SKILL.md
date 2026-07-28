@@ -82,25 +82,35 @@ windows are skipped and cleaned up automatically.
      but do NOT edit code yet. You may reply via `--push` if a clarification
      helps. Fixes are applied later, on `changes_requested`. Loop back to step 2.
 
-   - **`idle`** — the human has not acted yet and the poll hit its cutoff (about a
-     minute). Nothing is wrong; just re-arm:
+   - **`idle`** — the poll hit its cutoff (about a minute) with the human still
+     reading. This is the normal heartbeat of a review, not a fault. Re-arm:
 
      ```bash
      revizorro review
      ```
 
-     Loop back to step 2. Re-arm with NO scope flags: a bare call keeps reviewing
-     whatever the round is already showing, while `--worktree` would widen a
-     staged-only review to the whole branch. Each call is bounded, the review
-     itself is not — expect to loop through several `idle` events while the human
-     reads.
+     Re-arm with NO scope flags: a bare call keeps reviewing whatever the round is
+     already showing, while `--worktree` would widen a staged-only review to the
+     whole branch.
+
+     A careful reader takes many minutes, so a long review is mostly `idle`
+     events — ten in a row is a human reading, not a broken form. On `idle` do NOT
+     investigate: do not check whether the form opened, do not inspect the host
+     registry, do not restart anything, and do not report each one to the user.
+     Just re-arm and keep waiting.
+
+     `idle` carries a `review` snapshot — `round`, `files`, `openThreads`,
+     `viewedFiles` — which is proof the round is live. Watch `viewedFiles` climb if
+     you want to see progress. If that snapshot is missing across several `idle`
+     events in a row, THEN something is off and it is worth telling the user.
 
    - **`decision` / `approved`** — the human approved. Stop the loop. Proceed to
      merge (or report ready-to-merge).
 
    - **`decision` / `changes_requested`** `{ comments: [...] }` — NOW apply fixes
      for every comment. For each addressed comment, `--push` a reply into its
-     thread saying what you did (so the human can verify and mark it resolved).
+     thread saying what you did (so the human can verify and mark it resolved) —
+     all of them in ONE push, not one call per comment.
      Then start a NEW round, keeping the same scope (no flags):
 
      ```bash
@@ -111,9 +121,10 @@ windows are skipped and cleaned up automatically.
      to step 2.
 
    - **`decision` / `clarify`** `{ comments: [...] }` — the human wants answers,
-     NOT code changes. Answer EVERY comment in the list: `--push` a reply into
-     each thread. Do not edit code. The form stays open and shows a loader per
-     unanswered thread (and a top-bar total) that clears as your replies land.
+     NOT code changes. Answer EVERY comment in the list, writing all the replies
+     into ONE push file rather than pushing them one at a time. Do not edit code.
+     The form stays open and marks each unanswered thread, clearing as your
+     replies land.
      After answering all, re-enter with `revizorro review` to wait for the human's
      next decision. Loop back to step 2.
 
@@ -146,6 +157,25 @@ windows are skipped and cleaned up automatically.
 `replies` answer existing threads; `comments` open new agent-authored threads on
 the diff. Either array may be empty.
 
+**Answer every thread in ONE push.** Both arrays take as many entries as you
+like, each `reply` addressed by its own `threadId`, and they are applied together
+in a single round-trip. Answering five questions with five `--push` calls costs
+five blocking waits and leaves the human watching four threads sit unanswered
+while you work through them one by one:
+
+```json
+{
+  "replies": [
+    { "threadId": "t12", "body": "Renamed it to `refreshTokens!`." },
+    { "threadId": "t13", "body": "It cannot be null here — the column is NOT NULL." },
+    { "threadId": "t14", "body": "Extracted into TokenRefreshable." }
+  ],
+  "comments": []
+}
+```
+
+Write every answer first, then push once.
+
 ## Rules
 
 - One event per call. Always re-enter the loop after acting — never assume the
@@ -166,6 +196,13 @@ the diff. Either array may be empty.
 - Re-arm with a bare `revizorro review`. Scope flags belong on the call that
   STARTS a review; repeating `--worktree` on every loop would widen a staged-only
   review to the whole branch.
+- Judge an event by what it says, not by how long the call took. Every event
+  carries `at` (when the human acted) and, when it waited in the queue while you
+  were away, `held: true`. A verdict that arrives the instant you call is normal
+  if `held` is set — it is a real decision made moments ago and handed over now,
+  not a stale replay. Trust it and act; do not ask the user to confirm it.
+- Answer all open threads in a single `--push` (see Push-file shape), never one
+  call per thread.
 - `revizorro review --check` is a cheap preflight: exit 10 means the diff has
   something to review, exit 0 means it is empty. It touches no VS Code window, so
   use it before opening a form on an empty change. It honours `--staged-only`
