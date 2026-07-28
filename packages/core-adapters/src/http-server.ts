@@ -6,11 +6,13 @@ import type { ReviewOptions } from "@revizorro/core";
 type Waiter = (e: ReviewEvent) => void;
 
 /**
- * How long one call may block before it is answered with `idle`. A review can take
- * the human all afternoon, but a single CLI call that never returns reads as a hung
- * command — so each poll is bounded and the agent re-arms.
+ * How long one call may block before it is answered with `idle`. The agent runs the
+ * CLI through a harness whose command timeout caps around ten minutes, so a poll can
+ * never wait indefinitely; five minutes sits at half that, which keeps wakeups rare
+ * without risking a killed command. How long the HUMAN has been away is a separate
+ * quantity, tracked across calls in `lastActivityAt`.
  */
-const DEFAULT_POLL_TIMEOUT_MS = 60_000;
+const DEFAULT_POLL_TIMEOUT_MS = 300_000;
 
 export interface HttpReviewHostOptions {
   pollTimeoutMs?: number;
@@ -29,6 +31,12 @@ export class HttpReviewHost {
   private readonly waiters = new Map<string, Waiter[]>();
   /** Events raised while no agent was polling, waiting for its next call. */
   private readonly held = new Map<string, ReviewEvent[]>();
+  /**
+   * When the human last touched this worktree's form. Kept across calls, because
+   * inactivity outlives any single poll: a reviewer reading for twenty minutes
+   * spans four of them.
+   */
+  private readonly lastActivityAt = new Map<string, number>();
   private waitingChanged?: (worktreeId: string, waiting: boolean) => void;
   private idleEvent?: (worktreeId: string) => ReviewEvent;
   private onPushReceived?: (
@@ -61,6 +69,10 @@ export class HttpReviewHost {
     // Stamped when the human acted, not when it is delivered: a held event stays
     // honest about its age, so the agent can tell fresh-but-late from stale.
     const stamped: ReviewEvent = { ...event, at: event.at ?? Date.now() };
+    // Every delivered event began as a human action, so it is proof of presence.
+    // The timeout path answers its waiter directly rather than through emit, so
+    // `idle` can never reset the clock it is reporting.
+    this.noteActivity(worktreeId);
     const next = this.waiters.get(worktreeId)?.shift();
     if (next) {
       next(stamped);
@@ -72,6 +84,15 @@ export class HttpReviewHost {
       this.held.set(worktreeId, q);
     }
     return false;
+  }
+
+  /**
+   * Record that the human is at the form. Reading, expanding context, marking a
+   * file viewed and typing all emit no event, so without this a careful reader is
+   * indistinguishable from an empty desk.
+   */
+  noteActivity(worktreeId: string): void {
+    this.lastActivityAt.set(worktreeId, Date.now());
   }
 
   /** Whether an agent is blocked on this worktree right now. */
@@ -123,6 +144,10 @@ export class HttpReviewHost {
         };
         // Register the response waiter BEFORE invoking onPushReceived: a push handler may
         // synchronously emit an event, which must find a waiting client.
+        // Seeded on the first call for this worktree — the moment the form opens —
+        // so inactivity is never measured from the epoch. Only when absent: a
+        // re-armed poll is the agent, not the human.
+        if (!this.lastActivityAt.has(worktreeId)) this.lastActivityAt.set(worktreeId, Date.now());
         const list = this.waiters.get(worktreeId) ?? [];
         const waiter: Waiter = (event) => {
           clearTimeout(timer);
@@ -138,7 +163,13 @@ export class HttpReviewHost {
           const at = queue?.indexOf(waiter) ?? -1;
           if (!queue || at < 0) return;
           queue.splice(at, 1);
-          waiter(this.idleEvent?.(worktreeId) ?? { type: "idle" });
+          const event = this.idleEvent?.(worktreeId) ?? { type: "idle" as const };
+          const since = this.lastActivityAt.get(worktreeId);
+          waiter(
+            event.type === "idle" && since !== undefined
+              ? { ...event, inactiveForMs: Date.now() - since }
+              : event,
+          );
         }, this.pollTimeoutMs);
         timer.unref?.();
         // A cancelled command or a closed terminal leaves its request behind. Left in

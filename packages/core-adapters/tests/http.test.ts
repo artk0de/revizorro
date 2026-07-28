@@ -189,8 +189,52 @@ describe("HTTP transport contract", () => {
     const port = await host.start();
     host.onReview(() => undefined);
     const started = Date.now();
-    expect(await new HttpReviewClient(port).review("wt1", "/repo")).toEqual({ type: "idle" });
+    // toMatchObject, not toEqual: idle now also carries the inactivity measurement.
+    expect(await new HttpReviewClient(port).review("wt1", "/repo")).toMatchObject({ type: "idle" });
     expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  // `idle` has to say how long the human has been gone, because reading, expanding
+  // context and marking files viewed emit nothing: without the measurement a
+  // reviewer deep in a careful read looks exactly like an empty desk.
+  it("reports how long the form has gone untouched when a poll times out", async () => {
+    host = new HttpReviewHost({ pollTimeoutMs: 120 });
+    const port = await host.start();
+    host.onReview(() => undefined);
+    const event = await new HttpReviewClient(port).review("wt1", "/repo");
+    expect(event).toMatchObject({ type: "idle" });
+    expect((event as { inactiveForMs?: number }).inactiveForMs).toBeGreaterThanOrEqual(100);
+  });
+
+  it("restarts the clock when the human touches the form", async () => {
+    host = new HttpReviewHost({ pollTimeoutMs: 300 });
+    const port = await host.start();
+    host.onReview(() => undefined);
+    setTimeout(() => host.noteActivity("wt1"), 200);
+    const event = await new HttpReviewClient(port).review("wt1", "/repo");
+    expect((event as { inactiveForMs?: number }).inactiveForMs).toBeLessThan(180);
+  });
+
+  it("counts a delivered event as the human being present", async () => {
+    host = new HttpReviewHost({ pollTimeoutMs: 300 });
+    const port = await host.start();
+    host.onReview(() => undefined);
+    const client = new HttpReviewClient(port);
+    const first = client.review("wt1", "/repo");
+    setTimeout(() => host.emit("wt1", { type: "decision", verdict: "clarify", comments: [] }), 50);
+    await first;
+    const event = await client.review("wt1", "/repo");
+    expect((event as { inactiveForMs?: number }).inactiveForMs).toBeLessThan(360);
+  });
+
+  it("keeps each worktree's clock to itself", async () => {
+    host = new HttpReviewHost({ pollTimeoutMs: 250 });
+    const port = await host.start();
+    host.onReview(() => undefined);
+    const other = new HttpReviewClient(port).review("wt2", "/repo2");
+    setTimeout(() => host.noteActivity("wt1"), 150);
+    const event = await other;
+    expect((event as { inactiveForMs?: number }).inactiveForMs).toBeGreaterThanOrEqual(200);
   });
 
   it("does not time a poll out once an event has been delivered", async () => {
