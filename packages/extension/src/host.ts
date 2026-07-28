@@ -108,6 +108,14 @@ export class ReviewHost {
     return this.current ? this.events.isWaiting(this.current.worktreeId) : false;
   }
 
+  /**
+   * The form saw human input. Forwarded to the broker so a long, quiet read does
+   * not read as an abandoned review. No open round means nothing to keep alive.
+   */
+  noteActivity(): void {
+    if (this.current) this.events.noteActivity(this.current.worktreeId);
+  }
+
   /** Highest numeric suffix across existing thread ids — so new ids never collide after a restart. */
   private maxId(threads: SessionState["threads"]): number {
     return threads.reduce((m, t) => {

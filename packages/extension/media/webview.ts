@@ -8,6 +8,7 @@ import {
   type Line,
 } from "./view/patch.js";
 import { setBridge, send } from "./view/bridge.js";
+import { trackActivity } from "./view/activity.js";
 import { renderSummary, renderAgentStatus } from "./view/summary.js";
 import {
   renderTree,
@@ -33,6 +34,8 @@ setBridge((m) => {
   vscode.postMessage(m);
 });
 send({ type: "ready" });
+// Any input anywhere in the form counts, so listen at the document.
+trackActivity(document);
 
 interface Msg {
   type: string;

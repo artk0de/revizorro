@@ -98,6 +98,10 @@ export class ReviewForm {
       }) => {
         if (m.type === "ready") {
           if (this.lastMessage) void this.panel?.webview.postMessage(this.lastMessage);
+        } else if (m.type === "activity") {
+          // Reading and scrolling emit nothing else; this is what keeps the
+          // host's inactivity clock honest about a reviewer who is still here.
+          this.host.noteActivity();
         } else if (m.type === "approve") {
           this.decided = true;
           void this.host.approve();
