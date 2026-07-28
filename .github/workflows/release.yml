@@ -34,8 +34,9 @@ jobs:
           cache: npm
           registry-url: "https://registry.npmjs.org"
       - run: npm ci
-      - run: npm run lint
+      # Build first — lint resolves @revizorro/* through dist/ (see ci.yml).
       - run: npm run build
+      - run: npm run lint
       - run: npm test
       - name: Release
         env:

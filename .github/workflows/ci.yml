@@ -16,7 +16,10 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      # Build first: lint and typecheck resolve @revizorro/* through each
+      # package's dist/, so running them on an unbuilt tree reports every
+      # cross-package type as `any` instead of checking it.
+      - run: npm run build
       - run: npm run lint
       - run: npm run typecheck -w packages/extension
-      - run: npm run build
       - run: npm test
