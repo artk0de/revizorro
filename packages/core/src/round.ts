@@ -55,7 +55,10 @@ export function resolveScope(
   open: SessionState | null,
   requested: Partial<ReviewScope>,
 ): ReviewScope {
-  const inherited = open?.status === "open" ? (open.scope ?? WHOLE_BRANCH) : WHOLE_BRANCH;
+  // Inherited across verdicts too: after changes_requested the agent fixes and
+  // re-reviews the SAME staged change, and dropping the scope there would hand it
+  // the whole branch again.
+  const inherited = open?.scope ?? WHOLE_BRANCH;
   return {
     stagedOnly: requested.stagedOnly ?? inherited.stagedOnly,
     baseRef: requested.baseRef ?? inherited.baseRef,

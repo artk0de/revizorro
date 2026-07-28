@@ -9,6 +9,7 @@ import {
   isVerdictReplayable,
   scopeChanged,
   resolveScope,
+  threadsInDiff,
   editMessage,
   type DiffFile,
   type ReviewOptions,
@@ -142,41 +143,50 @@ export class ReviewHost {
     // last one, so a stale approval must not be served here.
     if (cur && isVerdictReplayable(cur, Date.now())) {
       await c.store.save(markVerdictDelivered(cur));
-      this.events.emit(c.worktreeId, this.verdictEvent(cur));
+      if (c.lastDiff.length === 0) c.lastDiff = await c.diff.diff(c.worktreeId);
+      this.events.emit(c.worktreeId, this.verdictEvent(cur, c.lastDiff));
       return;
     }
     const s = await this.newRound(c);
     this.onOpen(s, c.lastDiff);
   }
 
-  /** Open threads handed to the agent alongside a verdict (or a clarify request). */
-  private openComments(s: SessionState): {
+  /**
+   * Open threads handed to the agent alongside a verdict (or a clarify request) —
+   * only those on files in the diff under review. The session keeps threads from
+   * earlier rounds and other scopes, and shipping all of them would tell the agent
+   * to go fix work that shipped days ago.
+   */
+  private openComments(
+    s: SessionState,
+    diff: DiffFile[],
+  ): {
     threadId: string;
     file: string;
     side: Side;
     range: FileRange;
     body: string;
   }[] {
-    return s.threads
-      .filter((t) => !t.resolved)
-      .map((t) => ({
-        threadId: t.id,
-        file: t.file,
-        side: t.side,
-        range: t.range,
-        body: t.messages.map((m) => m.body).join("\n"),
-      }));
+    return threadsInDiff(s, diff.map((f) => f.path)).map((t) => ({
+      threadId: t.id,
+      file: t.file,
+      side: t.side,
+      range: t.range,
+      body: t.messages.map((m) => m.body).join("\n"),
+    }));
   }
 
-  private verdictEvent(s: SessionState): ReviewEvent {
+  private verdictEvent(s: SessionState, diff: DiffFile[]): ReviewEvent {
     return s.status === "approved"
       ? { type: "decision", verdict: "approved", comments: [] }
-      : { type: "decision", verdict: "changes_requested", comments: this.openComments(s) };
+      : { type: "decision", verdict: "changes_requested", comments: this.openComments(s, diff) };
   }
 
   /** Emit a verdict; if no agent was listening, leave it briefly replayable. */
   private async deliverVerdict(c: ReviewCtx, s: SessionState): Promise<void> {
-    if (this.events.emit(c.worktreeId, this.verdictEvent(s))) return;
+    // The verdict is scoped to the diff the human judged, so that diff must be known.
+    if (c.lastDiff.length === 0) c.lastDiff = await c.diff.diff(c.worktreeId);
+    if (this.events.emit(c.worktreeId, this.verdictEvent(s, c.lastDiff))) return;
     await c.store.save(markVerdictPending(s, Date.now()));
   }
 
@@ -250,13 +260,11 @@ export class ReviewHost {
     if (!c) return;
     const cur = await c.store.load(c.worktreeId);
     if (!cur) return;
-    for (const t of cur.threads.filter((t) => !t.resolved)) this.pending.add(t.id);
+    if (c.lastDiff.length === 0) c.lastDiff = await c.diff.diff(c.worktreeId);
+    const comments = this.openComments(cur, c.lastDiff);
+    for (const { threadId } of comments) this.pending.add(threadId);
     this.onState(cur, c.lastDiff);
-    this.events.emit(c.worktreeId, {
-      type: "decision",
-      verdict: "clarify",
-      comments: this.openComments(cur),
-    });
+    this.events.emit(c.worktreeId, { type: "decision", verdict: "clarify", comments });
   }
 
   /**
@@ -285,14 +293,20 @@ export class ReviewHost {
     if (ask) this.pending.add(threadId);
     await c.store.save(next);
     this.onState(next, c.lastDiff);
-    this.events.emit(c.worktreeId, {
-      type: ask ? "question" : "comment",
-      threadId,
-      file,
-      side,
-      range,
-      body,
-    });
+    // Held when the agent is between calls (off writing the previous answer):
+    // a question the human asked must never be silently dropped.
+    this.events.emit(
+      c.worktreeId,
+      {
+        type: ask ? "question" : "comment",
+        threadId,
+        file,
+        side,
+        range,
+        body,
+      },
+      true,
+    );
   }
 
   /** Human replies inside an existing thread. `ask=true` wakes the agent now. */
@@ -312,14 +326,20 @@ export class ReviewHost {
     if (ask) this.pending.add(threadId);
     await c.store.save(next);
     this.onState(next, c.lastDiff);
-    this.events.emit(c.worktreeId, {
-      type: ask ? "question" : "comment",
-      threadId,
-      file: thread.file,
-      side: thread.side,
-      range: thread.range,
-      body,
-    });
+    // Held when the agent is between calls (off writing the previous answer):
+    // a question the human asked must never be silently dropped.
+    this.events.emit(
+      c.worktreeId,
+      {
+        type: ask ? "question" : "comment",
+        threadId,
+        file: thread.file,
+        side: thread.side,
+        range: thread.range,
+        body,
+      },
+      true,
+    );
   }
 
   /** Edit one of the human's own messages in a thread; persist and re-render. */

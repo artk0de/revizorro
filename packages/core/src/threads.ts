@@ -17,6 +17,20 @@ export function editMessage(
   };
 }
 
+/**
+ * The unresolved threads that belong to what the human is reviewing right now.
+ *
+ * A session outlives its rounds: threads survive scope switches, closed MRs, even
+ * another branch reviewed in the same window, and files they point at may be long
+ * gone. Handing all of them to the agent with a verdict reads as "fix all this",
+ * when most of it is history — so a verdict only carries threads on files in the
+ * current diff.
+ */
+export function threadsInDiff(state: SessionState, diffPaths: readonly string[]): SessionState["threads"] {
+  const inDiff = new Set(diffPaths);
+  return state.threads.filter((t) => !t.resolved && inDiff.has(t.file));
+}
+
 export function applyPush(
   state: SessionState,
   payload: PushPayload,

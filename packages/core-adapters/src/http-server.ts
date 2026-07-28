@@ -8,6 +8,8 @@ type Waiter = (e: ReviewEvent) => void;
 export class HttpReviewHost {
   private server?: Server;
   private readonly waiters = new Map<string, Waiter[]>();
+  /** Events raised while no agent was polling, waiting for its next call. */
+  private readonly held = new Map<string, ReviewEvent[]>();
   private onPushReceived?: (
     worktreeId: string,
     repoRoot: string,
@@ -27,13 +29,37 @@ export class HttpReviewHost {
     this.onReviewRequest = cb;
   }
 
-  /** Hand the event to one blocked agent. Returns false when nobody was waiting. */
-  emit(worktreeId: string, event: ReviewEvent): boolean {
-    const q = this.waiters.get(worktreeId);
-    const next = q?.shift();
-    if (!next) return false;
-    next(event);
-    return true;
+  /**
+   * Hand the event to one blocked agent. Returns false when nobody was waiting.
+   *
+   * With `holdIfIdle`, an undelivered event is kept and handed to the next caller
+   * instead of being dropped — the human can ask a second question while the agent
+   * is off writing the answer to the first, and it is not polling in that gap.
+   */
+  emit(worktreeId: string, event: ReviewEvent, holdIfIdle = false): boolean {
+    const next = this.waiters.get(worktreeId)?.shift();
+    if (next) {
+      next(event);
+      return true;
+    }
+    if (holdIfIdle) {
+      const q = this.held.get(worktreeId) ?? [];
+      q.push(event);
+      this.held.set(worktreeId, q);
+    }
+    return false;
+  }
+
+  /** Give a freshly arrived caller the oldest event raised while it was away. */
+  private deliverHeld(worktreeId: string): void {
+    const q = this.held.get(worktreeId);
+    const event = q?.[0];
+    if (!q || event === undefined) return;
+    const waiter = this.waiters.get(worktreeId)?.shift();
+    if (!waiter) return;
+    q.shift();
+    if (q.length === 0) this.held.delete(worktreeId);
+    waiter(event);
   }
 
   async start(): Promise<number> {
@@ -69,6 +95,9 @@ export class HttpReviewHost {
         } else {
           this.onPushReceived?.(worktreeId, repoRoot, PushPayload.parse(push), opts ?? {});
         }
+        // Anything the human raised while this agent was away is answered now,
+        // ahead of it settling into another long poll.
+        this.deliverHeld(worktreeId);
       });
     });
     this.server = server;

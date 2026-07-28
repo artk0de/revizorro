@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyPush, editMessage } from "../src/index.js";
+import { applyPush, editMessage, threadsInDiff } from "../src/index.js";
 import type { SessionState } from "@revizorro/protocol";
 
 const base: SessionState = {
@@ -83,6 +83,26 @@ describe("applyPush", () => {
       () => "g",
     );
     expect(next.threads[0].messages).toHaveLength(1);
+  });
+
+  // A session accumulates threads across rounds and scope switches: closed MRs,
+  // deleted files, even another branch reviewed in the same window. A verdict must
+  // carry only what the human was actually looking at.
+  it("hands the agent only unresolved threads on files in the current diff", () => {
+    const state: SessionState = {
+      ...base,
+      threads: [
+        { ...base.threads[0], id: "t1", file: "current.ts" },
+        { ...base.threads[0], id: "t2", file: "gone.ts" },
+        { ...base.threads[0], id: "t3", file: "current.ts", resolved: true },
+        { ...base.threads[0], id: "t4", file: "other-branch.ts" },
+      ],
+    };
+    expect(threadsInDiff(state, ["current.ts", "untouched.ts"]).map((t) => t.id)).toEqual(["t1"]);
+  });
+
+  it("returns nothing when the diff is empty rather than everything", () => {
+    expect(threadsInDiff(base, [])).toEqual([]);
   });
 
   const viewed: SessionState = {

@@ -110,6 +110,50 @@ describe("HTTP transport contract", () => {
     expect(isDeadHostError(err)).toBe(false);
   });
 
+  // The human can ask a second question while the agent is off writing the answer
+  // to the first — it is not polling then, and a plain emit would drop the event.
+  it("holds an event raised while the agent is away and hands it over on its next call", async () => {
+    host = new HttpReviewHost();
+    const port = await host.start();
+    host.onReview(() => {
+      /* the form re-opens; no event of its own */
+    });
+    expect(host.emit("wt1", { type: "question", threadId: "t2", file: "a.ts", side: "new", range: { startLine: 1, endLine: 1 }, body: "second question" }, true)).toBe(false);
+    const event = await new HttpReviewClient(port).review("wt1", "/repo");
+    expect(event).toMatchObject({ type: "question", threadId: "t2" });
+  });
+
+  it("keeps held events in order", async () => {
+    host = new HttpReviewHost();
+    const port = await host.start();
+    host.onReview(() => undefined);
+    host.emit("wt1", { type: "comment", threadId: "t1", file: "a.ts", side: "new", range: { startLine: 1, endLine: 1 }, body: "first" }, true);
+    host.emit("wt1", { type: "comment", threadId: "t2", file: "a.ts", side: "new", range: { startLine: 2, endLine: 2 }, body: "second" }, true);
+    const client = new HttpReviewClient(port);
+    expect(await client.review("wt1", "/repo")).toMatchObject({ threadId: "t1" });
+    expect(await client.review("wt1", "/repo")).toMatchObject({ threadId: "t2" });
+  });
+
+  it("does not hold an event that a waiting agent took", async () => {
+    host = new HttpReviewHost();
+    const port = await host.start();
+    host.onReview(() => undefined);
+    const client = new HttpReviewClient(port);
+    const pending = client.review("wt1", "/repo");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(host.emit("wt1", { type: "idle" }, true)).toBe(true);
+    expect(await pending).toEqual({ type: "idle" });
+    // Nothing left over for the next call. The abandoned poll is torn down by the
+    // afterEach stop(), so swallow its rejection rather than leaving it unhandled.
+    const abandoned = client.review("wt1", "/repo");
+    abandoned.catch(() => undefined);
+    const second = await Promise.race([
+      abandoned,
+      new Promise((r) => setTimeout(() => r("blocked"), 300)),
+    ]);
+    expect(second).toBe("blocked");
+  });
+
   it("surfaces a client push to the host", async () => {
     host = new HttpReviewHost();
     const port = await host.start();

@@ -135,9 +135,17 @@ describe("review scope", () => {
     expect(resolveScope(null, {})).toEqual(whole);
   });
 
-  it("does not inherit the scope of a round that is already decided", () => {
+  // The scope is a property of the review, not of one round: after changes_requested
+  // the agent fixes and re-reviews the same staged change. Losing the scope there
+  // hands it the whole branch again.
+  it("carries the scope across a verdict into the next round", () => {
+    const decided = applyDecision(startRound(null, "wt1", [], staged), "changes_requested");
+    expect(resolveScope(decided, {})).toEqual(staged);
+  });
+
+  it("still lets an explicit flag change the scope after a verdict", () => {
     const decided = applyDecision(startRound(null, "wt1", [], staged), "approved");
-    expect(resolveScope(decided, {})).toEqual(whole);
+    expect(resolveScope(decided, { stagedOnly: false })).toEqual(whole);
   });
 
   it("treats a session written before scopes existed as whole-branch", () => {
