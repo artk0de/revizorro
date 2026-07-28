@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { createServer } from "node:http";
+import { createServer, request } from "node:http";
 import { HttpReviewHost, HttpReviewClient, isDeadHostError } from "../src/index.js";
 
 let host: HttpReviewHost;
@@ -152,6 +152,34 @@ describe("HTTP transport contract", () => {
       new Promise((r) => setTimeout(() => r("blocked"), 300)),
     ]);
     expect(second).toBe("blocked");
+  });
+
+  // A killed CLI (cancelled command, timeout, closed terminal) leaves its request
+  // behind. Nothing removed it, so it stayed first in line and swallowed the next
+  // event — the human approved and the live agent kept waiting.
+  it("drops a poll whose connection died so the next event reaches a live agent", async () => {
+    host = new HttpReviewHost();
+    const port = await host.start();
+    host.onReview(() => undefined);
+
+    const body = JSON.stringify({ worktreeId: "wt1", repoRoot: "/repo" });
+    const dead = request({
+      host: "127.0.0.1",
+      port,
+      path: "/review",
+      method: "POST",
+      headers: { "content-type": "application/json", "content-length": Buffer.byteLength(body) },
+    });
+    dead.on("error", () => undefined);
+    dead.end(body);
+    await new Promise((r) => setTimeout(r, 50));
+    dead.destroy(); // the agent's process is gone
+    await new Promise((r) => setTimeout(r, 50));
+
+    const live = new HttpReviewClient(port).review("wt1", "/repo");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(host.emit("wt1", { type: "decision", verdict: "approved", comments: [] })).toBe(true);
+    expect(await live).toEqual({ type: "decision", verdict: "approved", comments: [] });
   });
 
   it("surfaces a client push to the host", async () => {

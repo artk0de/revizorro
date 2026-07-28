@@ -184,8 +184,11 @@ export class ReviewHost {
 
   /** Emit a verdict; if no agent was listening, leave it briefly replayable. */
   private async deliverVerdict(c: ReviewCtx, s: SessionState): Promise<void> {
-    // The verdict is scoped to the diff the human judged, so that diff must be known.
-    if (c.lastDiff.length === 0) c.lastDiff = await c.diff.diff(c.worktreeId);
+    // Only changes_requested carries comments, so only it needs the diff to scope
+    // them by — an approval goes out immediately rather than after a git walk.
+    if (s.status !== "approved" && c.lastDiff.length === 0) {
+      c.lastDiff = await c.diff.diff(c.worktreeId);
+    }
     if (this.events.emit(c.worktreeId, this.verdictEvent(s, c.lastDiff))) return;
     await c.store.save(markVerdictPending(s, Date.now()));
   }

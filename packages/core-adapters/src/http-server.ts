@@ -83,11 +83,20 @@ export class HttpReviewHost {
         // Register the response waiter BEFORE invoking onPushReceived: a push handler may
         // synchronously emit an event, which must find a waiting client.
         const list = this.waiters.get(worktreeId) ?? [];
-        list.push((event) => {
+        const waiter: Waiter = (event) => {
           res.setHeader("content-type", "application/json");
           res.end(JSON.stringify(event));
-        });
+        };
+        list.push(waiter);
         this.waiters.set(worktreeId, list);
+        // A cancelled command or a closed terminal leaves its request behind. Left in
+        // the queue it stays first in line and swallows the next event — the human
+        // approves, and the agent that is actually listening never hears about it.
+        res.on("close", () => {
+          const queue = this.waiters.get(worktreeId);
+          const at = queue?.indexOf(waiter) ?? -1;
+          if (queue && at >= 0) queue.splice(at, 1);
+        });
         // A push is a reply delivery; a plain review is a request to (re)open the
         // form — so a late push can never resurrect a closed form.
         if (push === undefined) {
