@@ -82,8 +82,8 @@ windows are skipped and cleaned up automatically.
      but do NOT edit code yet. You may reply via `--push` if a clarification
      helps. Fixes are applied later, on `changes_requested`. Loop back to step 2.
 
-   - **`idle`** — the poll hit its cutoff (about a minute) with the human still
-     reading. This is the normal heartbeat of a review, not a fault. Re-arm:
+   - **`idle`** — the poll hit its ceiling. This is the normal heartbeat of a
+     review, not a fault. Re-arm:
 
      ```bash
      revizorro review
@@ -93,13 +93,23 @@ windows are skipped and cleaned up automatically.
      already showing, while `--worktree` would widen a staged-only review to the
      whole branch.
 
-     A careful reader takes many minutes, so a long review is mostly `idle`
-     events — ten in a row is a human reading, not a broken form. On `idle` do NOT
-     investigate: do not check whether the form opened, do not inspect the host
-     registry, do not restart anything, and do not report each one to the user.
-     Just re-arm and keep waiting.
+     `idle` carries `inactiveForMs` — how long the form has gone untouched.
+     Reading, expanding context and marking files viewed emit no events, so this
+     number, not the number of `idle` events, is what tells you where the human
+     is. Wait a MINIMUM of ten minutes of it before reading anything into silence:
 
-     `idle` carries a `review` snapshot — `round`, `files`, `openThreads`,
+     - **Under ten minutes: re-arm silently.** Say nothing to the user, do not
+       check whether the form opened, do not inspect the host registry, do not
+       restart anything. A careful reader is quiet for long stretches; that is
+       what reviewing looks like.
+     - **Ten minutes or more: tell the user ONCE**, in their language, that the
+       form has not been touched for that long — then keep re-arming silently.
+       Repeat it only if activity resumes and then stops again. Never end the
+       loop: Approve still unblocks you the moment they come back, and an
+       abandoned loop would leave them approving into a form nobody is listening
+       to.
+
+     `idle` also carries a `review` snapshot — `round`, `files`, `openThreads`,
      `viewedFiles` — which is proof the round is live. Watch `viewedFiles` climb if
      you want to see progress. If that snapshot is missing across several `idle`
      events in a row, THEN something is off and it is worth telling the user.
@@ -209,3 +219,6 @@ Write every answer first, then push once.
   and `--base`.
 - Review before committing, not after: stage the commit's contents, run
   `--staged-only`, and commit once it is approved.
+- **Merges do not start a review loop.** A merge commit carries no authored work
+  — the review happened on the branch before it. Do not run `revizorro review`
+  for a merge, and do not treat a merge as an unreviewed change.
