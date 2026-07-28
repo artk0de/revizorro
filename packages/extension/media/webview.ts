@@ -8,7 +8,7 @@ import {
   type Line,
 } from "./view/patch.js";
 import { setBridge, send } from "./view/bridge.js";
-import { renderSummary } from "./view/summary.js";
+import { renderSummary, renderAgentStatus } from "./view/summary.js";
 import {
   renderTree,
   setTreeVisible,
@@ -39,6 +39,7 @@ interface Msg {
   round: number;
   status: string;
   scope?: { stagedOnly: boolean; baseRef: string };
+  agentWaiting?: boolean;
   viewMode?: string;
   files: FileView[];
 }
@@ -358,17 +359,17 @@ function renderThread(t: FileView["threads"][number]): HTMLElement {
     ta.rows = 1;
     ta.placeholder = "Reply…  (⌘/Ctrl+Enter reply · ⌥+Enter ask · ↑ edit last)";
     bindDraft(ta, replyDraftKey(t.id));
-    const send = (type: "reply" | "askReply") => {
+    const postReply = (type: "reply" | "askReply") => {
       const v = ta.value.trim();
       if (v) send({ type, threadId: t.id, body: v });
       ta.value = "";
       clearDraft(replyDraftKey(t.id));
     };
     const replyFn = () => {
-      send("reply");
+      postReply("reply");
     };
     const askFn = () => {
-      send("askReply");
+      postReply("askReply");
     };
     const reply = el("button", undefined, "Reply");
     const ask = el("button", "primary", "Ask agent");
@@ -433,10 +434,10 @@ function openCompose(
     clearDraft(draftKey);
     close();
   };
-  const send = el("button", undefined, "Comment");
+  const commentBtn = el("button", undefined, "Comment");
   const ask = el("button", "primary", "Ask agent");
   const cancel = el("button", "ghost cancel", "Cancel");
-  send.onclick = commentFn;
+  commentBtn.onclick = commentFn;
   ask.onclick = askFn;
   cancel.onclick = close;
   onSubmit(ta, commentFn, askFn);
@@ -444,7 +445,7 @@ function openCompose(
     if (e.key === "Escape") close();
   });
   const actions = el("div", "compose-actions");
-  actions.append(send, ask, cancel);
+  actions.append(commentBtn, ask, cancel);
   box.append(ta, actions);
   // In split, anchor the composer after the line's grid row so it spans full
   // width as its own grid item; in inline it just follows the clicked line.
@@ -530,7 +531,7 @@ function renderFile(f: FileView, mode: string): HTMLElement {
   if (f.binary) diff.append(el("div", "binary", "(binary file — no textual diff)"));
   else {
     const lang = langFor(f.path);
-    const lines = withExpansions(f, parsePatch(f.patch));
+    const lines = withExpansions(f, parsePatch(f.patch), expandedGaps);
     if (mode === "split") {
       diff.classList.add("split");
       diff.append(splitBody(f, lines, lang));
@@ -550,6 +551,7 @@ function render(): void {
   const round = document.getElementById("round");
   if (round) round.textContent = `round ${state.round} · ${state.status}`;
   renderSummary(state.files, state.scope);
+  renderAgentStatus(state.agentWaiting);
   const toggle = document.getElementById("toggle");
   if (toggle) {
     const mode = state.viewMode || "inline";
@@ -570,7 +572,21 @@ function render(): void {
     restoreFocus(focus);
     return;
   }
-  for (const f of state.files) root.append(renderFile(f, state.viewMode || "inline"));
+  // One unrenderable file must not cost the human the rest of the review: without
+  // this, a throw part-way through left the tree listing files whose diff cards had
+  // never been built, so the sidebar pointed at nothing and the form looked dead.
+  for (const f of state.files) {
+    try {
+      root.append(renderFile(f, state.viewMode || "inline"));
+    } catch (e) {
+      const failed = el("div", "file");
+      failed.dataset.path = f.path;
+      const head = el("div", "file-head");
+      head.append(el("span", "path", f.path), el("span", "tag", "could not be rendered"));
+      failed.append(head, el("div", "binary", String(e instanceof Error ? e.message : e)));
+      root.append(failed);
+    }
+  }
   // Reopen the composer the human had open before this re-render (e.g. an agent
   // reply landed mid-typing) so their in-progress comment survives.
   if (activeCompose) {

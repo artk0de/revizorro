@@ -29,6 +29,7 @@ export class HttpReviewHost {
   private readonly waiters = new Map<string, Waiter[]>();
   /** Events raised while no agent was polling, waiting for its next call. */
   private readonly held = new Map<string, ReviewEvent[]>();
+  private waitingChanged?: (worktreeId: string, waiting: boolean) => void;
   private onPushReceived?: (
     worktreeId: string,
     repoRoot: string,
@@ -67,6 +68,16 @@ export class HttpReviewHost {
       this.held.set(worktreeId, q);
     }
     return false;
+  }
+
+  /** Whether an agent is blocked on this worktree right now. */
+  isWaiting(worktreeId: string): boolean {
+    return (this.waiters.get(worktreeId)?.length ?? 0) > 0;
+  }
+
+  /** Fires whenever an agent starts or stops waiting, so the form can say which. */
+  onWaitingChanged(cb: (worktreeId: string, waiting: boolean) => void): void {
+    this.waitingChanged = cb;
   }
 
   /** Give a freshly arrived caller the oldest event raised while it was away. */
@@ -126,7 +137,9 @@ export class HttpReviewHost {
           const queue = this.waiters.get(worktreeId);
           const at = queue?.indexOf(waiter) ?? -1;
           if (queue && at >= 0) queue.splice(at, 1);
+          this.waitingChanged?.(worktreeId, this.isWaiting(worktreeId));
         });
+        this.waitingChanged?.(worktreeId, true);
         // A push is a reply delivery; a plain review is a request to (re)open the
         // form — so a late push can never resurrect a closed form.
         if (push === undefined) {

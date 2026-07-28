@@ -82,7 +82,7 @@ export function escapeHtml(s: string): string {
 export function hl(text: string, lang: string | null): string {
   if (!lang || !text) return escapeHtml(text);
   try {
-    return hljs.highlight(text, { language: lang, ignoreIllegal: true }).value;
+    return hljs.highlight(text, { language: lang, ignoreIllegals: true }).value;
   } catch {
     return escapeHtml(text);
   }

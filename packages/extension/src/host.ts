@@ -60,10 +60,24 @@ export class ReviewHost {
     this.events.onReview((wt, repoRoot, opts) => {
       void this.withCtx(repoRoot, wt, opts, (c) => this.openForReview(c));
     });
+    // A long review outlives the CLI call that opened it. Re-render when an agent
+    // starts or stops listening so the form can say which.
+    this.events.onWaitingChanged((wt) => {
+      const c = this.current;
+      if (c?.worktreeId !== wt) return;
+      void c.store.load(wt).then((s) => {
+        if (s) this.onState(s, c.lastDiff);
+      });
+    });
   }
 
   isPending(threadId: string): boolean {
     return this.pending.has(threadId);
+  }
+
+  /** Whether an agent is blocked on the active review right now. */
+  isAgentWaiting(): boolean {
+    return this.current ? this.events.isWaiting(this.current.worktreeId) : false;
   }
 
   /** Highest numeric suffix across existing thread ids — so new ids never collide after a restart. */

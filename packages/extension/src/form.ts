@@ -56,6 +56,7 @@ export class ReviewForm {
       round: state.round,
       status: state.status,
       scope: state.scope,
+      agentWaiting: this.host.isAgentWaiting(),
       viewMode: this.viewMode,
       files,
     };

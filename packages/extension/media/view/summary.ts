@@ -47,6 +47,26 @@ export function reviewProgress(files: SummaryFile[]): { done: number; total: num
   };
 }
 
+/**
+ * Show whether an agent is actually waiting for the verdict. A long review outlives
+ * the CLI call that opened it: once nothing is listening, approving changes nothing
+ * and the form looks broken — say so instead.
+ */
+export function renderAgentStatus(waiting: boolean | undefined): void {
+  const box = document.getElementById("agent");
+  if (!box) return;
+  if (waiting === undefined) {
+    box.textContent = "";
+    box.className = "agent";
+    return;
+  }
+  box.textContent = waiting ? "● agent listening" : "○ agent not listening";
+  box.className = `agent ${waiting ? "waiting" : "gone"}`;
+  box.title = waiting
+    ? "an agent is blocked on this review and will get your verdict"
+    : "no agent is waiting right now — your verdict is kept and delivered when it comes back";
+}
+
 /** Paint the toolbar: what is under review, how big it is, how much is done. */
 export function renderSummary(files: SummaryFile[], scope: ReviewScopeView | undefined): void {
   const scopeEl = document.getElementById("scope");

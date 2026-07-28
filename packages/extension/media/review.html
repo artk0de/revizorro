@@ -53,6 +53,10 @@
       }
       .progress-bar.full { background: var(--vscode-testing-iconPassed); }
       .progress-label { font-size: 0.78em; opacity: 0.75; white-space: nowrap; }
+      /* whether an agent is actually listening for the verdict */
+      .agent { font-size: 0.78em; white-space: nowrap; opacity: 0.85; }
+      .agent.waiting { color: var(--vscode-testing-iconPassed); }
+      .agent.gone { color: var(--vscode-testing-iconFailed); font-weight: 600; }
       button {
         cursor: pointer;
         background: var(--vscode-button-secondaryBackground);
@@ -200,6 +204,8 @@
         margin: 0.6rem 0.75rem;
         overflow: hidden;
       }
+      /* The header pins under the toolbar while you scroll a long diff, so you can
+         always see which file you are reading. */
       .file-head {
         display: flex;
         align-items: center;
@@ -208,7 +214,13 @@
         background: var(--vscode-editorGroupHeader-tabsBackground);
         cursor: pointer;
         user-select: none;
+        position: sticky;
+        top: var(--toolbar-h, 2.9rem);
+        z-index: 5;
+        border-bottom: 1px solid var(--vscode-panel-border);
       }
+      /* overflow:hidden on the card would cancel the sticky header */
+      .file { overflow: visible; }
       .file-head .path { font-weight: 600; flex: 1; }
       .file-head .tag { opacity: 0.6; font-size: 0.8em; }
       /* renamed/moved file: old path stays visible, dimmed, before the arrow */
@@ -548,6 +560,7 @@
         <span class="progress-track"><span class="progress-bar" id="progressBar"></span></span>
         <span class="progress-label" id="progressLabel"></span>
       </span>
+      <span class="agent" id="agent" title="whether an agent is waiting for your verdict"></span>
       <span class="toploader" id="toploader"></span>
       <button id="toggle" class="tipbtn tip-left" data-tip="Toggle inline / side-by-side diff">⇆ split/inline</button>
       <span class="grow"></span>
