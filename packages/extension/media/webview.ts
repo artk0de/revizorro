@@ -2,21 +2,30 @@ import { langFor, hl, renderMarkdown } from "./view/highlight.js";
 import { el, codeSpan, onSubmit, autoGrow } from "./view/dom.js";
 import {
   parsePatch,
-  diffStat,
   withExpansions,
   LOCKFILE,
   EXPAND_STEP,
   type Line,
 } from "./view/patch.js";
 import { setBridge, send } from "./view/bridge.js";
+import { renderSummary } from "./view/summary.js";
 import {
-  buildFileTree,
-  fileReviewState,
-  composeDraftKey,
-  replyDraftKey,
-  editDraftKey,
-  type FileTreeNode,
-} from "@revizorro/core";
+  renderTree,
+  setTreeVisible,
+  isTreeVisible,
+  applyTreeWidth,
+  bindTreeResizer,
+} from "./view/tree.js";
+import {
+  bindDraft,
+  clearDraft,
+  markEditorOpen,
+  markEditorClosed,
+  isEditorOpen,
+  focusSnapshot,
+  restoreFocus,
+} from "./view/drafts.js";
+import { composeDraftKey, replyDraftKey, editDraftKey } from "@revizorro/core";
 
 declare function acquireVsCodeApi(): { postMessage: (m: unknown) => void };
 const vscode = acquireVsCodeApi();
@@ -57,48 +66,6 @@ const expandedGaps = new Map<string, number>();
 
 let state: Msg | null = null;
 let sel: { file: string; start: number; end: number } | null = null;
-// Unsent text — composer, thread replies, message edits — kept outside the DOM.
-// Every agent push re-renders the form from scratch, and without this whatever the
-// human was typing at that moment is gone. Cleared on submit.
-const drafts = new Map<string, string>();
-// Message editors the human had open, so a re-render reopens them instead of
-// collapsing back to the rendered comment mid-edit.
-const openEditors = new Set<string>();
-
-/**
- * Keep typing alive across a re-render: remember which textarea had focus and where
- * the caret sat, then put both back once the new DOM is in place.
- */
-function focusSnapshot(): { key: string; start: number; end: number } | null {
-  const active = document.activeElement;
-  if (!(active instanceof HTMLTextAreaElement) || !active.dataset.draftKey) return null;
-  return {
-    key: active.dataset.draftKey,
-    start: active.selectionStart ?? 0,
-    end: active.selectionEnd ?? 0,
-  };
-}
-
-function restoreFocus(snap: { key: string; start: number; end: number } | null): void {
-  if (!snap) return;
-  const target = document.querySelector<HTMLTextAreaElement>(
-    `textarea[data-draft-key="${CSS.escape(snap.key)}"]`,
-  );
-  if (!target) return;
-  target.focus();
-  target.setSelectionRange(snap.start, snap.end);
-}
-
-/** Wire a textarea to its draft: restore what was typed, and record every keystroke. */
-function bindDraft(ta: HTMLTextAreaElement, draftKey: string): void {
-  ta.dataset.draftKey = draftKey;
-  const saved = drafts.get(draftKey);
-  if (saved !== undefined) ta.value = saved;
-  ta.addEventListener("input", () => {
-    if (ta.value) drafts.set(draftKey, ta.value);
-    else drafts.delete(draftKey);
-  });
-}
 // The composer currently open, if any. An incoming agent reply re-renders the
 // whole form; this lets render() reopen the composer (with its draft) instead of
 // silently dropping what the human was typing.
@@ -334,7 +301,7 @@ function renderThread(t: FileView["threads"][number]): HTMLElement {
     const editKey = editDraftKey(t.id, i);
     const startEdit = () => {
       if (msg.querySelector(".msg-edit")) return;
-      openEditors.add(editKey);
+      markEditorOpen(editKey);
       const editor = el("div", "msg-edit");
       const ta = document.createElement("textarea");
       ta.className = "edit-ta";
@@ -342,8 +309,7 @@ function renderThread(t: FileView["threads"][number]): HTMLElement {
       // A draft only exists if this edit was interrupted by a re-render.
       bindDraft(ta, editKey);
       const restore = () => {
-        openEditors.delete(editKey);
-        drafts.delete(editKey);
+        markEditorClosed(editKey);
         editor.replaceWith(bodyEl);
       };
       const saveFn = () => {
@@ -377,7 +343,7 @@ function renderThread(t: FileView["threads"][number]): HTMLElement {
     content.append(msg);
     // This message was being edited when the form re-rendered — reopen the editor
     // so the human keeps typing where they left off.
-    if (openEditors.has(editKey)) queueMicrotask(startEdit);
+    if (isEditorOpen(editKey)) queueMicrotask(startEdit);
   });
 
   if (t.pending) {
@@ -396,7 +362,7 @@ function renderThread(t: FileView["threads"][number]): HTMLElement {
       const v = ta.value.trim();
       if (v) send({ type, threadId: t.id, body: v });
       ta.value = "";
-      drafts.delete(replyDraftKey(t.id));
+      clearDraft(replyDraftKey(t.id));
     };
     const replyFn = () => {
       send("reply");
@@ -458,13 +424,13 @@ function openCompose(
   const commentFn = () => {
     const v = ta.value.trim();
     if (v) send({ type: "comment", file, side, startLine, endLine, body: withSnippet(v) });
-    drafts.delete(draftKey);
+    clearDraft(draftKey);
     close();
   };
   const askFn = () => {
     const v = ta.value.trim();
     if (v) send({ type: "ask", file, side, startLine, endLine, body: withSnippet(v) });
-    drafts.delete(draftKey);
+    clearDraft(draftKey);
     close();
   };
   const send = el("button", undefined, "Comment");
@@ -576,208 +542,6 @@ function renderFile(f: FileView, mode: string): HTMLElement {
   return wrap;
 }
 
-// File-tree sidebar (GitLab style): collapsible directories, click a file to jump
-// to its diff card. Collapse state and visibility survive re-renders.
-let treeVisible = true;
-const collapsedDirs = new Set<string>();
-
-function revealFile(path: string): void {
-  const card = document.querySelector<HTMLElement>(`.file[data-path="${CSS.escape(path)}"]`);
-  if (!card) return;
-  // Viewed and oversized files render collapsed — jumping to a closed header looks
-  // like nothing happened, so open it on the way in.
-  const diff = card.querySelector<HTMLElement>(".diff");
-  if (diff?.style.display === "none") {
-    diff.style.display = "block";
-    const caret = card.querySelector<HTMLElement>(".caret");
-    if (caret) caret.textContent = "▾";
-  }
-  card.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function treeRows(node: FileTreeNode, depth: number, byPath: Map<string, FileView>): HTMLElement[] {
-  const row = el("div", `node ${node.kind}`);
-  row.style.paddingLeft = `${0.3 + depth * 0.7}rem`;
-
-  if (node.kind === "dir") {
-    const open = !collapsedDirs.has(node.path);
-    row.append(el("span", "tcaret", open ? "▾" : "▸"), el("span", "nm", node.name));
-    row.onclick = () => {
-      if (open) collapsedDirs.add(node.path);
-      else collapsedDirs.delete(node.path);
-      render();
-    };
-    const kids = el("div", "tkids");
-    kids.style.display = open ? "block" : "none";
-    kids.append(...node.children.flatMap((c) => treeRows(c, depth + 1, byPath)));
-    return [row, kids];
-  }
-
-  const f = byPath.get(node.path);
-  if (!f) {
-    row.append(el("span", "nm", node.name));
-    return [row];
-  }
-  const s = fileReviewState(f.threads, f.viewed);
-  // Leading marker, in priority order: unresolved threads win over every "done"
-  // signal, so an agent comment on a ticked-off file drags it back into view.
-  const mark = el("span", "mark");
-  if (s.openThreads > 0) {
-    mark.textContent = "●";
-    mark.classList.add("open");
-    mark.title = `${s.openThreads} unresolved thread(s)`;
-  } else if (s.allResolved) {
-    mark.textContent = "✓";
-    mark.classList.add("done");
-    mark.title = "all threads resolved";
-  } else if (f.viewed) {
-    mark.textContent = "✓";
-    mark.classList.add("seen");
-    mark.title = "marked viewed";
-  } else {
-    mark.textContent = "•";
-    mark.classList.add("todo");
-    mark.title = "not reviewed yet";
-  }
-  row.append(mark, el("span", "nm", node.name));
-  if (f.viewed && !s.needsAttention) row.classList.add("viewed");
-  if (s.allResolved) row.classList.add("allresolved");
-  if (s.needsAttention) row.classList.add("attention");
-  if (f.oldPath) row.classList.add("moved");
-
-  const stat = el("span", "stat");
-  if (s.openThreads > 0) stat.append(el("span", "cmt", `💬${s.openThreads} `));
-  if (!f.binary) {
-    const { add, del } = diffStat(f.patch);
-    if (add > 0) stat.append(el("span", "add", `+${add}`));
-    if (add > 0 && del > 0) stat.append(document.createTextNode(" "));
-    if (del > 0) stat.append(el("span", "del", `−${del}`));
-  }
-  row.append(stat);
-  const where = f.oldPath ? `${f.oldPath} → ${f.path}` : f.path;
-  const threadNote =
-    s.openThreads > 0
-      ? `${s.openThreads} unresolved`
-      : s.allResolved
-        ? "all threads resolved"
-        : f.viewed
-          ? "viewed"
-          : "not reviewed";
-  row.title = `${where}\n${threadNote}`;
-  row.onclick = () => {
-    revealFile(f.path);
-  };
-  return [row];
-}
-
-function renderTree(files: FileView[]): void {
-  const root = document.getElementById("tree");
-  if (!root) return;
-  // Keep the reader's place: a re-render (agent reply, resolve) must not scroll
-  // the navigator back to the top.
-  const scroll = root.scrollTop;
-  root.innerHTML = "";
-  const states = files.map((f) => fileReviewState(f.threads, f.viewed));
-  const openTotal = states.reduce((n, s) => n + s.openThreads, 0);
-  const doneCount = states.filter((s) => !s.needsAttention).length;
-  const head = el("div", "tree-head");
-  head.append(el("span", "nm", `${files.length} file${files.length === 1 ? "" : "s"}`));
-  const summary = el("span", "stat");
-  if (openTotal > 0) summary.append(el("span", "cmt", `💬${openTotal} open`));
-  else summary.append(el("span", "done", `${doneCount}/${files.length} done`));
-  head.append(summary);
-  root.append(head);
-  const byPath = new Map(files.map((f) => [f.path, f]));
-  for (const node of buildFileTree(files.map((f) => f.path))) {
-    root.append(...treeRows(node, 0, byPath));
-  }
-  root.scrollTop = scroll;
-}
-
-// Drag the divider to resize the navigator; the width outlives re-renders.
-let treeWidth = 17;
-function applyTreeWidth(): void {
-  document.getElementById("main")?.style.setProperty("--tree-w", `${treeWidth}rem`);
-}
-function bindTreeResizer(): void {
-  const grip = document.getElementById("treeResizer");
-  const main = document.getElementById("main");
-  if (!grip || !main) return;
-  grip.addEventListener("mousedown", (e: MouseEvent) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = treeWidth;
-    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    const onMove = (m: MouseEvent) => {
-      treeWidth = Math.min(45, Math.max(9, startWidth + (m.clientX - startX) / rem));
-      applyTreeWidth();
-    };
-    const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.classList.remove("resizing");
-    };
-    document.body.classList.add("resizing");
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  });
-}
-
-function setTreeVisible(visible: boolean): void {
-  treeVisible = visible;
-  document.getElementById("main")?.classList.toggle("tree-hidden", !visible);
-  document.getElementById("treeToggle")?.classList.toggle("on", visible);
-}
-
-// Toolbar summary: what is being reviewed, how big it is, and how far the human
-// has got — the three questions asked when a diff first opens.
-function renderSummary(files: FileView[]): void {
-  const scopeEl = document.getElementById("scope");
-  if (scopeEl) {
-    const scope = state?.scope;
-    scopeEl.textContent = scope?.stagedOnly
-      ? "staged only"
-      : `branch vs ${scope?.baseRef || "default branch"}`;
-    scopeEl.title = scope?.stagedOnly
-      ? "reviewing the staged change against HEAD"
-      : `reviewing the branch against ${scope?.baseRef || "its target branch"}`;
-  }
-
-  const stats = document.getElementById("stats");
-  if (stats) {
-    stats.innerHTML = "";
-    let add = 0;
-    let del = 0;
-    for (const f of files) {
-      if (f.binary) continue;
-      const d = diffStat(f.patch);
-      add += d.add;
-      del += d.del;
-    }
-    stats.append(
-      el("span", undefined, `${files.length} file${files.length === 1 ? "" : "s"} `),
-      el("span", "add", `+${add}`),
-      document.createTextNode(" "),
-      el("span", "del", `−${del}`),
-    );
-  }
-
-  const done = files.filter((f) => !fileReviewState(f.threads, f.viewed).needsAttention).length;
-  const pct = files.length > 0 ? Math.round((done / files.length) * 100) : 0;
-  const label = document.getElementById("progressLabel");
-  if (label) label.textContent = `${done}/${files.length} reviewed`;
-  const bar = document.getElementById("progressBar");
-  if (bar) {
-    bar.style.width = `${pct}%`;
-    bar.classList.toggle("full", done === files.length && files.length > 0);
-  }
-  const wrap = document.getElementById("progress");
-  if (wrap) {
-    wrap.style.display = files.length > 0 ? "flex" : "none";
-    wrap.title = `${done} of ${files.length} files reviewed (viewed, no unresolved threads)`;
-  }
-}
-
 function render(): void {
   if (!state) return;
   // An agent push rebuilds the form under the human's hands; keep the caret where
@@ -785,7 +549,7 @@ function render(): void {
   const focus = focusSnapshot();
   const round = document.getElementById("round");
   if (round) round.textContent = `round ${state.round} · ${state.status}`;
-  renderSummary(state.files);
+  renderSummary(state.files, state.scope);
   const toggle = document.getElementById("toggle");
   if (toggle) {
     const mode = state.viewMode || "inline";
@@ -837,10 +601,10 @@ bindButton("toggle", "toggleViewMode");
 const treeToggle = document.getElementById("treeToggle");
 if (treeToggle) {
   treeToggle.onclick = () => {
-    setTreeVisible(!treeVisible);
+    setTreeVisible(!isTreeVisible());
   };
 }
-setTreeVisible(treeVisible);
+setTreeVisible(isTreeVisible());
 applyTreeWidth();
 bindTreeResizer();
 

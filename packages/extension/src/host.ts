@@ -210,11 +210,22 @@ export class ReviewHost {
   /** Apply an agent push: append replies/comments, clear pending loaders, persist, re-render. */
   private async handlePush(c: ReviewCtx, push: PushPayload): Promise<void> {
     const cur = await c.store.load(c.worktreeId);
-    if (!cur) return;
+    if (!cur) {
+      // Nothing to deliver into: no round was ever opened for this worktree. Say so
+      // rather than leaving the agent blocked on a review that does not exist.
+      this.events.emit(c.worktreeId, { type: "closed" });
+      return;
+    }
     let n = this.maxId(cur.threads);
     const next = applyPush(cur, push, () => `t${++n}`);
     for (const r of push.replies) this.pending.delete(r.threadId);
     await c.store.save(next);
+    if (cur.interrupted) {
+      // The human closed the form before this landed. The replies are saved, but the
+      // review is not live — tell the agent instead of parking it on a dead round.
+      this.events.emit(c.worktreeId, { type: "closed" });
+      return;
+    }
     // A push can be the first call on a fresh context (e.g. the agent flipped
     // --staged-only mid-round), and rendering that cache empty would blank the form.
     if (c.lastDiff.length === 0) c.lastDiff = await c.diff.diff(c.worktreeId);
