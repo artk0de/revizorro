@@ -32,6 +32,8 @@ export const SessionState = z.object({
   verdictPendingSince: z.number().optional(),
   /** The scope this round was opened with; a different one is a different review. */
   scope: ReviewScope.default({ stagedOnly: false, baseRef: "" }),
+  /** The human closed the form without deciding — this round is over, unfinished. */
+  interrupted: z.boolean().default(false),
 });
 export type SessionState = z.infer<typeof SessionState>;
 export type ReviewScope = z.infer<typeof ReviewScope>;

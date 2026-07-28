@@ -7,6 +7,8 @@ import {
   isVerdictReplayable,
   scopeChanged,
   resolveScope,
+  markInterrupted,
+  applyPush,
 } from "../src/index.js";
 import type { SessionState } from "@revizorro/protocol";
 
@@ -45,6 +47,43 @@ describe("startRound", () => {
     expect(s.round).toBe(2);
     expect(s.files["a.ts"].viewed).toBe(true);
     expect(s.threads.map((t) => t.id)).toEqual(["t2"]); // resolved dropped
+  });
+});
+
+describe("round numbering", () => {
+  const openRound = (): SessionState => startRound(null, "wt1", [{ path: "a.ts", contentHash: "h1" }]);
+
+  it("starts at round 1", () => {
+    expect(openRound().round).toBe(1);
+  });
+
+  // A round is one pass of human judgement. Only a verdict — or the human walking
+  // away — ends it; asking the agent a question mid-review does not.
+  it("advances after a verdict", () => {
+    for (const verdict of ["approved", "changes_requested"] as const) {
+      const decided = applyDecision(openRound(), verdict);
+      expect(startRound(decided, "wt1", []).round).toBe(2);
+    }
+  });
+
+  it("advances after the human interrupted the review", () => {
+    const interrupted = markInterrupted(openRound());
+    expect(startRound(interrupted, "wt1", []).round).toBe(2);
+  });
+
+  it("stays put while the round is still open — a scope switch is not a new round", () => {
+    const open = startRound(null, "wt1", [], { stagedOnly: false, baseRef: "" });
+    expect(startRound(open, "wt1", [], { stagedOnly: true, baseRef: "" }).round).toBe(1);
+  });
+
+  it("clears the interrupted mark once the next round opens", () => {
+    expect(startRound(markInterrupted(openRound()), "wt1", []).interrupted).toBe(false);
+  });
+
+  it("leaves the round number alone when the agent answers a question", () => {
+    const open = openRound();
+    const after = applyPush(open, { replies: [], comments: [] }, () => "g1");
+    expect(after.round).toBe(open.round);
   });
 });
 

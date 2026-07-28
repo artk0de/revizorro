@@ -9,10 +9,28 @@ export function startRound(
   diff: DiffFile[],
   scope: ReviewScope = WHOLE_BRANCH,
 ): SessionState {
-  const round = prev ? prev.round + 1 : 1;
+  // A round is one pass of human judgement, so it advances only once that pass
+  // ended: a verdict, or the human walking out. Re-opening the form — a scope
+  // switch, a re-render, an answered question — stays inside the current round.
+  const ended = prev !== null && (prev.status !== "open" || prev.interrupted === true);
+  const round = prev === null ? 1 : ended ? prev.round + 1 : prev.round;
   const { files } = decideCollapsed(prev?.files ?? {}, diff);
   const threads = (prev?.threads ?? []).filter((t) => !t.resolved);
-  return { worktreeId, round, status: "open", files, threads, verdictDelivered: false, scope };
+  return {
+    worktreeId,
+    round,
+    status: "open",
+    files,
+    threads,
+    verdictDelivered: false,
+    scope,
+    interrupted: false,
+  };
+}
+
+/** The human closed the form without deciding; the round ends unfinished. */
+export function markInterrupted(state: SessionState): SessionState {
+  return { ...state, interrupted: true };
 }
 
 /**

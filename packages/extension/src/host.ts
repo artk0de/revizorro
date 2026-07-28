@@ -5,6 +5,7 @@ import {
   applyDecision,
   markVerdictDelivered,
   markVerdictPending,
+  markInterrupted,
   isVerdictReplayable,
   scopeChanged,
   resolveScope,
@@ -128,7 +129,7 @@ export class ReviewHost {
     // Continue the open round only when it is showing the SAME review. Asking for
     // the staged change while a whole-branch round is open (or vice versa) is a new
     // review and gets its own round — otherwise the form keeps the old scope.
-    if (cur?.status === "open" && !scopeChanged(cur, this.scopeOf(c))) {
+    if (cur?.status === "open" && !cur.interrupted && !scopeChanged(cur, this.scopeOf(c))) {
       // Always re-read the diff: the agent calls review again precisely because the
       // tree moved on (fixes applied, files staged, work committed).
       c.lastDiff = await c.diff.diff(c.worktreeId);
@@ -226,7 +227,11 @@ export class ReviewHost {
     const c = this.current;
     if (!c) return;
     const cur = await c.store.load(c.worktreeId);
-    if (cur?.status === "open") this.events.emit(c.worktreeId, { type: "closed" });
+    if (cur?.status !== "open" || cur.interrupted) return;
+    // Walking out ends the round just as a verdict does — whatever the human asks
+    // for next (re-run, commit, chat) starts from a fresh round, not this one.
+    await c.store.save(markInterrupted(cur));
+    this.events.emit(c.worktreeId, { type: "closed" });
   }
 
   /** Request changes: the agent fixes every open comment and re-submits a new round. */
