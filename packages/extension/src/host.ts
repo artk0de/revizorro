@@ -50,8 +50,8 @@ export class ReviewHost {
   private current?: ReviewCtx;
 
   constructor(
-    private readonly onState: (s: SessionState, diff: DiffFile[]) => void,
-    private readonly onOpen: (s: SessionState, diff: DiffFile[]) => void,
+    private readonly renderState: (s: SessionState, diff: DiffFile[]) => void,
+    private readonly openForm: (s: SessionState, diff: DiffFile[]) => void,
   ) {
     this.events.onPush((wt, repoRoot, push, opts) => {
       void this.withCtx(repoRoot, wt, opts, (c) => this.handlePush(c, push));
@@ -60,19 +60,47 @@ export class ReviewHost {
     this.events.onReview((wt, repoRoot, opts) => {
       void this.withCtx(repoRoot, wt, opts, (c) => this.openForReview(c));
     });
+    // A timed-out poll answers with a snapshot of the live review, so the agent can
+    // see the round is open and simply re-arm instead of diagnosing a healthy form.
+    this.events.onIdle(() => ({ type: "idle", ...(this.snapshot ? { review: this.snapshot } : {}) }));
     // A long review outlives the CLI call that opened it. Re-render when an agent
     // starts or stops listening so the form can say which.
     this.events.onWaitingChanged((wt) => {
       const c = this.current;
       if (c?.worktreeId !== wt) return;
       void c.store.load(wt).then((s) => {
-        if (s) this.onState(s, c.lastDiff);
+        if (s) this.onStateRendered(s, c.lastDiff);
       });
     });
   }
 
   isPending(threadId: string): boolean {
     return this.pending.has(threadId);
+  }
+
+  /** Last rendered state, summarised for the idle event (read synchronously). */
+  private snapshot?: { round: number; files: number; openThreads: number; viewedFiles: number };
+
+  /** Render into the open form, remembering what it shows for the idle snapshot. */
+  private onStateRendered(s: SessionState, diff: DiffFile[]): void {
+    this.remember(s, diff);
+    this.renderState(s, diff);
+  }
+
+  /** Open (or re-open) the form, remembering what it shows for the idle snapshot. */
+  private onFormOpened(s: SessionState, diff: DiffFile[]): void {
+    this.remember(s, diff);
+    this.openForm(s, diff);
+  }
+
+  private remember(s: SessionState, diff: DiffFile[]): void {
+    const paths = new Set(diff.map((f) => f.path));
+    this.snapshot = {
+      round: s.round,
+      files: diff.length,
+      openThreads: s.threads.filter((t) => !t.resolved && paths.has(t.file)).length,
+      viewedFiles: diff.filter((f) => s.files[f.path]?.viewed).length,
+    };
   }
 
   /** Whether an agent is blocked on the active review right now. */
@@ -148,7 +176,7 @@ export class ReviewHost {
       // Always re-read the diff: the agent calls review again precisely because the
       // tree moved on (fixes applied, files staged, work committed).
       c.lastDiff = await c.diff.diff(c.worktreeId);
-      this.onOpen(cur, c.lastDiff);
+      this.onFormOpened(cur, c.lastDiff);
       return;
     }
     // A verdict decided moments ago that never reached an agent — the human hit
@@ -162,7 +190,7 @@ export class ReviewHost {
       return;
     }
     const s = await this.newRound(c);
-    this.onOpen(s, c.lastDiff);
+    this.onFormOpened(s, c.lastDiff);
   }
 
   /**
@@ -246,8 +274,8 @@ export class ReviewHost {
     // An agent push during an OPEN review must (re)show the form — the human may
     // have closed or reloaded the window (e.g. mid-Clarify). A decided session
     // (approved/changes_requested) stays closed: onState only re-renders if open.
-    if (next.status === "open") this.onOpen(next, c.lastDiff);
-    else this.onState(next, c.lastDiff);
+    if (next.status === "open") this.onFormOpened(next, c.lastDiff);
+    else this.onStateRendered(next, c.lastDiff);
   }
 
   async approve(): Promise<void> {
@@ -291,7 +319,7 @@ export class ReviewHost {
     if (c.lastDiff.length === 0) c.lastDiff = await c.diff.diff(c.worktreeId);
     const comments = this.openComments(cur, c.lastDiff);
     for (const { threadId } of comments) this.pending.add(threadId);
-    this.onState(cur, c.lastDiff);
+    this.onStateRendered(cur, c.lastDiff);
     this.events.emit(c.worktreeId, { type: "decision", verdict: "clarify", comments });
   }
 
@@ -320,7 +348,7 @@ export class ReviewHost {
     };
     if (ask) this.pending.add(threadId);
     await c.store.save(next);
-    this.onState(next, c.lastDiff);
+    this.onStateRendered(next, c.lastDiff);
     // Held when the agent is between calls (off writing the previous answer):
     // a question the human asked must never be silently dropped.
     this.events.emit(
@@ -353,7 +381,7 @@ export class ReviewHost {
     };
     if (ask) this.pending.add(threadId);
     await c.store.save(next);
-    this.onState(next, c.lastDiff);
+    this.onStateRendered(next, c.lastDiff);
     // Held when the agent is between calls (off writing the previous answer):
     // a question the human asked must never be silently dropped.
     this.events.emit(
@@ -378,7 +406,7 @@ export class ReviewHost {
     if (!cur) return;
     const next = editMessage(cur, threadId, index, body);
     await c.store.save(next);
-    this.onState(next, c.lastDiff);
+    this.onStateRendered(next, c.lastDiff);
   }
 
   /** Mark a thread resolved/unresolved; persist and re-render. Resolved threads drop from the next round. */
@@ -392,7 +420,7 @@ export class ReviewHost {
       threads: cur.threads.map((t) => (t.id === threadId ? { ...t, resolved } : t)),
     };
     await c.store.save(next);
-    this.onState(next, c.lastDiff);
+    this.onStateRendered(next, c.lastDiff);
   }
 
   /** Human marks/unmarks a file as viewed; persist and re-render (no event). */
@@ -406,7 +434,7 @@ export class ReviewHost {
       files: { ...cur.files, [file]: { ...cur.files[file], viewed } },
     };
     await c.store.save(next);
-    this.onState(next, c.lastDiff);
+    this.onStateRendered(next, c.lastDiff);
   }
 
   private async finalize(

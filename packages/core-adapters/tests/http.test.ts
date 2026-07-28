@@ -16,7 +16,7 @@ describe("HTTP transport contract", () => {
     setTimeout(() => {
       host.emit("wt1", { type: "decision", verdict: "approved", comments: [] });
     }, 20);
-    expect(await pending).toEqual({ type: "decision", verdict: "approved", comments: [] });
+    expect(await pending).toMatchObject({ type: "decision", verdict: "approved", comments: [] });
   });
   it("fires onReview for a plain review but not for a push delivery", async () => {
     host = new HttpReviewHost();
@@ -142,7 +142,7 @@ describe("HTTP transport contract", () => {
     const pending = client.review("wt1", "/repo");
     await new Promise((r) => setTimeout(r, 20));
     expect(host.emit("wt1", { type: "idle" }, true)).toBe(true);
-    expect(await pending).toEqual({ type: "idle" });
+    expect(await pending).toMatchObject({ type: "idle" });
     // Nothing left over for the next call. The abandoned poll is torn down by the
     // afterEach stop(), so swallow its rejection rather than leaving it unhandled.
     const abandoned = client.review("wt1", "/repo");
@@ -179,7 +179,7 @@ describe("HTTP transport contract", () => {
     const live = new HttpReviewClient(port).review("wt1", "/repo");
     await new Promise((r) => setTimeout(r, 50));
     expect(host.emit("wt1", { type: "decision", verdict: "approved", comments: [] })).toBe(true);
-    expect(await live).toEqual({ type: "decision", verdict: "approved", comments: [] });
+    expect(await live).toMatchObject({ type: "decision", verdict: "approved", comments: [] });
   });
 
   // Without this the call never returns: the agent's command sits there for as
@@ -222,5 +222,55 @@ describe("HTTP transport contract", () => {
         push: { replies: [{ threadId: "t1", body: "ack" }], comments: [] },
       },
     ]);
+  });
+});
+
+describe("event provenance", () => {
+  it("stamps when the human acted, so an agent can judge freshness", async () => {
+    host = new HttpReviewHost();
+    const port = await host.start();
+    host.onReview(() => undefined);
+    const before = Date.now();
+    const pending = new HttpReviewClient(port).review("wt1", "/repo");
+    await new Promise((r) => setTimeout(r, 20));
+    host.emit("wt1", { type: "decision", verdict: "approved", comments: [] });
+    const event = await pending;
+    expect(event.at).toBeGreaterThanOrEqual(before);
+    expect(event.held).toBeUndefined(); // delivered straight to a waiting agent
+  });
+
+  // An instant answer looks like a stale replay unless the event says otherwise.
+  it("marks an event that waited in the queue as held, keeping its original time", async () => {
+    host = new HttpReviewHost({ pollTimeoutMs: 5000 });
+    const port = await host.start();
+    host.onReview(() => undefined);
+    const raisedAt = Date.now();
+    host.emit("wt1", { type: "decision", verdict: "approved", comments: [] }, true);
+    await new Promise((r) => setTimeout(r, 60));
+    const event = await new HttpReviewClient(port).review("wt1", "/repo");
+    expect(event).toMatchObject({ type: "decision", verdict: "approved", held: true });
+    expect(event.at).toBeLessThanOrEqual(raisedAt + 50); // stamped when raised, not when delivered
+  });
+
+  it("answers a timed-out poll with whatever context the host supplies", async () => {
+    host = new HttpReviewHost({ pollTimeoutMs: 120 });
+    const port = await host.start();
+    host.onReview(() => undefined);
+    host.onIdle(() => ({
+      type: "idle",
+      review: { round: 7, files: 15, openThreads: 2, viewedFiles: 6 },
+    }));
+    const event = await new HttpReviewClient(port).review("wt1", "/repo");
+    expect(event).toMatchObject({
+      type: "idle",
+      review: { round: 7, files: 15, openThreads: 2, viewedFiles: 6 },
+    });
+  });
+
+  it("falls back to a bare idle when the host offers no context", async () => {
+    host = new HttpReviewHost({ pollTimeoutMs: 120 });
+    const port = await host.start();
+    host.onReview(() => undefined);
+    expect(await new HttpReviewClient(port).review("wt1", "/repo")).toMatchObject({ type: "idle" });
   });
 });

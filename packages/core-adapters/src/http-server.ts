@@ -30,6 +30,7 @@ export class HttpReviewHost {
   /** Events raised while no agent was polling, waiting for its next call. */
   private readonly held = new Map<string, ReviewEvent[]>();
   private waitingChanged?: (worktreeId: string, waiting: boolean) => void;
+  private idleEvent?: (worktreeId: string) => ReviewEvent;
   private onPushReceived?: (
     worktreeId: string,
     repoRoot: string,
@@ -57,14 +58,17 @@ export class HttpReviewHost {
    * is off writing the answer to the first, and it is not polling in that gap.
    */
   emit(worktreeId: string, event: ReviewEvent, holdIfIdle = false): boolean {
+    // Stamped when the human acted, not when it is delivered: a held event stays
+    // honest about its age, so the agent can tell fresh-but-late from stale.
+    const stamped: ReviewEvent = { ...event, at: event.at ?? Date.now() };
     const next = this.waiters.get(worktreeId)?.shift();
     if (next) {
-      next(event);
+      next(stamped);
       return true;
     }
     if (holdIfIdle) {
       const q = this.held.get(worktreeId) ?? [];
-      q.push(event);
+      q.push(stamped);
       this.held.set(worktreeId, q);
     }
     return false;
@@ -80,6 +84,11 @@ export class HttpReviewHost {
     this.waitingChanged = cb;
   }
 
+  /** Supplies the event a timed-out poll answers with, so idle can carry context. */
+  onIdle(cb: (worktreeId: string) => ReviewEvent): void {
+    this.idleEvent = cb;
+  }
+
   /** Give a freshly arrived caller the oldest event raised while it was away. */
   private deliverHeld(worktreeId: string): void {
     const q = this.held.get(worktreeId);
@@ -89,7 +98,9 @@ export class HttpReviewHost {
     if (!waiter) return;
     q.shift();
     if (q.length === 0) this.held.delete(worktreeId);
-    waiter(event);
+    // Flagged so an instant answer does not read as a stale replay: it was raised
+    // while the agent was away and is being handed over now.
+    waiter({ ...event, held: true });
   }
 
   async start(): Promise<number> {
@@ -127,7 +138,7 @@ export class HttpReviewHost {
           const at = queue?.indexOf(waiter) ?? -1;
           if (!queue || at < 0) return;
           queue.splice(at, 1);
-          waiter({ type: "idle" });
+          waiter(this.idleEvent?.(worktreeId) ?? { type: "idle" });
         }, this.pollTimeoutMs);
         timer.unref?.();
         // A cancelled command or a closed terminal leaves its request behind. Left in
