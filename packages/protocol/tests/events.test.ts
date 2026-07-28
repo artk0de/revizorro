@@ -44,4 +44,13 @@ describe("ReviewEvent", () => {
     expect(newSide.type === "comment" && newSide.side).toBe("new");
     expect(oldSide.type === "comment" && oldSide.side).toBe("old");
   });
+  it("accepts an idle event carrying how long the form has gone untouched", () => {
+    expect(ReviewEvent.parse({ type: "idle", inactiveForMs: 725_000 })).toMatchObject({
+      type: "idle",
+      inactiveForMs: 725_000,
+    });
+  });
+  it("still accepts an idle event without the measurement", () => {
+    expect(ReviewEvent.parse({ type: "idle" })).toEqual({ type: "idle" });
+  });
 });

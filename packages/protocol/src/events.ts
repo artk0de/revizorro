@@ -53,6 +53,12 @@ export const IdleEvent = z.object({
       viewedFiles: z.number(),
     })
     .optional(),
+  /**
+   * How long the form has gone untouched, in milliseconds. A measurement, not a
+   * verdict: what counts as "the human left" is the agent's policy and lives in
+   * the skill. Optional so an older host paired with a newer CLI still parses.
+   */
+  inactiveForMs: z.number().optional(),
   ...provenance,
 });
 // The human closed the review form without a verdict — the agent must ask the
