@@ -5,6 +5,7 @@ import {
   changeTotals,
   reviewProgress,
   renderSummary,
+  renderAgentStatus,
   type SummaryFile,
 } from "../media/view/summary.js";
 
@@ -65,6 +66,51 @@ describe("reviewProgress", () => {
 
   it("reports 0% rather than dividing by zero on an empty review", () => {
     expect(reviewProgress([])).toEqual({ done: 0, total: 0, pct: 0 });
+  });
+});
+
+describe("renderAgentStatus", () => {
+  beforeEach(() => {
+    document.body.innerHTML = `<span id="agent"></span>`;
+  });
+  const status = (): { text: string; cls: string } => {
+    const box = document.getElementById("agent");
+    return { text: box?.textContent ?? "", cls: box?.className ?? "" };
+  };
+
+  // Asking the agent takes it OUT of the poll — it is off writing the answer. That
+  // is the busiest the loop ever is, and reading it as "not listening" is wrong.
+  it("reports the questions being answered ahead of the poll state", () => {
+    renderAgentStatus(false, 1);
+    expect(status().text).toContain("answering 1 question");
+    expect(status().cls).toContain("busy");
+  });
+
+  it("pluralises several open questions", () => {
+    renderAgentStatus(false, 3);
+    expect(status().text).toContain("answering 3 questions");
+  });
+
+  it("says listening while an agent is blocked on the review", () => {
+    renderAgentStatus(true, 0);
+    expect(status().text).toContain("listening");
+    expect(status().cls).toContain("waiting");
+  });
+
+  it("warns only when nothing is waiting and nothing is being answered", () => {
+    renderAgentStatus(false, 0);
+    expect(status().text).toContain("not listening");
+    expect(status().cls).toContain("gone");
+  });
+
+  it("still reports answering even if the agent re-armed meanwhile", () => {
+    renderAgentStatus(true, 2);
+    expect(status().text).toContain("answering 2 questions");
+  });
+
+  it("shows nothing until the state is known", () => {
+    renderAgentStatus(undefined, 0);
+    expect(status().text).toBe("");
   });
 });
 

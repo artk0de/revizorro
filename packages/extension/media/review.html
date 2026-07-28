@@ -57,6 +57,7 @@
       .agent { font-size: 0.78em; white-space: nowrap; opacity: 0.85; }
       .agent.waiting { color: var(--vscode-testing-iconPassed); }
       .agent.gone { color: var(--vscode-testing-iconFailed); font-weight: 600; }
+      .agent.busy { font-style: italic; opacity: 0.95; }
       button {
         cursor: pointer;
         background: var(--vscode-button-secondaryBackground);
@@ -118,7 +119,6 @@
       .tipbtn:hover::after { opacity: 1; }
       .tipbtn.tip-left::after { left: 0; transform: none; }
       .tipbtn.tip-right::after { left: auto; right: 0; transform: none; }
-      .toploader { font-size: 0.82em; opacity: 0.9; font-style: italic; }
       #toggle .on { font-weight: 700; }
       #toggle span:not(.on) { opacity: 0.5; }
       /* file-tree sidebar + diff column */
@@ -561,7 +561,6 @@
         <span class="progress-label" id="progressLabel"></span>
       </span>
       <span class="agent" id="agent" title="whether an agent is waiting for your verdict"></span>
-      <span class="toploader" id="toploader"></span>
       <button id="toggle" class="tipbtn tip-left" data-tip="Toggle inline / side-by-side diff">⇆ split/inline</button>
       <span class="grow"></span>
       <button class="act approve tipbtn" id="approve" data-tip="Approve — the change passes the gate, ready to merge">✓ Approve</button>

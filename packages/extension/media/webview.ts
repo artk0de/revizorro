@@ -551,18 +551,18 @@ function render(): void {
   const round = document.getElementById("round");
   if (round) round.textContent = `round ${state.round} · ${state.status}`;
   renderSummary(state.files, state.scope);
-  renderAgentStatus(state.agentWaiting);
+
   const toggle = document.getElementById("toggle");
   if (toggle) {
     const mode = state.viewMode || "inline";
     toggle.innerHTML = `⇆ <span class="${mode === "inline" ? "on" : ""}">inline</span> / <span class="${mode === "split" ? "on" : ""}">split</span>`;
   }
+  // One place says what the agent is doing: answering, listening, or gone.
   const pendingCount = state.files.reduce(
     (n, f) => n + f.threads.filter((t) => t.pending).length,
     0,
   );
-  const tl = document.getElementById("toploader");
-  if (tl) tl.textContent = pendingCount > 0 ? `⏳ agent is answering ${pendingCount} question(s)…` : "";
+  renderAgentStatus(state.agentWaiting, pendingCount);
   const root = document.getElementById("files");
   if (!root) return;
   root.innerHTML = "";

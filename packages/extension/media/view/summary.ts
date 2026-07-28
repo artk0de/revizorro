@@ -52,12 +52,21 @@ export function reviewProgress(files: SummaryFile[]): { done: number; total: num
  * the CLI call that opened it: once nothing is listening, approving changes nothing
  * and the form looks broken — say so instead.
  */
-export function renderAgentStatus(waiting: boolean | undefined): void {
+export function renderAgentStatus(waiting: boolean | undefined, answering: number): void {
   const box = document.getElementById("agent");
   if (!box) return;
   if (waiting === undefined) {
     box.textContent = "";
     box.className = "agent";
+    return;
+  }
+  // Answering outranks the poll state. Asking the agent takes it OUT of the poll —
+  // it is away composing the reply — so "not listening" there would read as broken
+  // at the very moment the loop is busiest.
+  if (answering > 0) {
+    box.textContent = `⏳ agent answering ${answering} question${answering === 1 ? "" : "s"}`;
+    box.className = "agent busy";
+    box.title = "the agent is writing answers to the threads you asked about";
     return;
   }
   box.textContent = waiting ? "● agent listening" : "○ agent not listening";
