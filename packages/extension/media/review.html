@@ -89,21 +89,41 @@
       #toggle .on { font-weight: 700; }
       #toggle span:not(.on) { opacity: 0.5; }
       /* file-tree sidebar + diff column */
-      .main { display: flex; align-items: flex-start; }
+      .main { display: flex; align-items: flex-start; --tree-w: 17rem; --toolbar-h: 2.9rem; }
       .main #files { flex: 1; min-width: 0; }
       .tree {
         flex: none;
-        width: 17rem;
+        width: var(--tree-w);
         position: sticky;
-        top: 2.9rem;
-        max-height: calc(100vh - 3.2rem);
-        overflow: auto;
+        top: var(--toolbar-h);
+        /* Fixed height (not max-height) is what gives the tree its own vertical
+           scrollbar instead of letting a long list stretch the page. */
+        height: calc(100vh - var(--toolbar-h));
+        overflow-y: auto;
+        overflow-x: auto;
+        overscroll-behavior: contain;
         padding: 0.4rem 0.2rem 1.5rem;
-        border-right: 1px solid var(--vscode-panel-border);
         font-size: 0.88em;
         user-select: none;
       }
-      .main.tree-hidden .tree { display: none; }
+      /* Drag handle between the tree and the diff. */
+      .tree-resizer {
+        flex: none;
+        width: 5px;
+        align-self: stretch;
+        position: sticky;
+        top: var(--toolbar-h);
+        height: calc(100vh - var(--toolbar-h));
+        cursor: col-resize;
+        background: var(--vscode-panel-border);
+        opacity: 0.5;
+      }
+      .tree-resizer:hover, body.resizing .tree-resizer {
+        opacity: 1;
+        background: var(--vscode-focusBorder);
+      }
+      body.resizing { cursor: col-resize; user-select: none; }
+      .main.tree-hidden .tree, .main.tree-hidden .tree-resizer { display: none; }
       #treeToggle { opacity: 0.55; }
       #treeToggle.on { opacity: 1; }
       .tree-head {
@@ -128,8 +148,19 @@
       .tree .node .nm { overflow: hidden; text-overflow: ellipsis; }
       .tree .node.dir .nm { font-weight: 600; opacity: 0.85; }
       .tree .node.dir .tcaret { opacity: 0.5; font-size: 0.8em; }
+      /* viewed (and nothing pending) fades out; anything still open stays legible */
       .tree .node.file.viewed { opacity: 0.45; }
+      .tree .node.file.viewed .nm { text-decoration: line-through; text-decoration-thickness: 1px; }
+      .tree .node.file.attention .nm { font-weight: 600; }
       .tree .node.file.moved .nm { font-style: italic; }
+      /* state marker: ● unresolved · ✓ resolved/viewed · • untouched */
+      .tree .node .mark { flex: none; width: 1em; text-align: center; font-size: 0.85em; }
+      .tree .node .mark.open { color: var(--vscode-testing-iconFailed); }
+      .tree .node .mark.done { color: var(--vscode-testing-iconPassed); }
+      .tree .node .mark.seen { color: var(--vscode-testing-iconPassed); opacity: 0.65; }
+      .tree .node .mark.todo { opacity: 0.4; }
+      .tree-head .done { color: var(--vscode-testing-iconPassed); opacity: 0.8; }
+      .tree-head .cmt { color: var(--vscode-testing-iconFailed); }
       .tree .node .stat { margin-left: auto; padding-left: 0.4rem; font-size: 0.85em; }
       .tree .node .add { color: var(--vscode-testing-iconPassed); }
       .tree .node .del { color: var(--vscode-testing-iconFailed); }
@@ -491,6 +522,7 @@
     </div>
     <div class="main" id="main">
       <aside class="tree" id="tree"></aside>
+      <div class="tree-resizer" id="treeResizer" title="Drag to resize the file tree"></div>
       <div id="files"><div class="empty">waiting for review session…</div></div>
     </div>
     <script>

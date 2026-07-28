@@ -14,7 +14,7 @@ import rust from "highlight.js/lib/languages/rust";
 import java from "highlight.js/lib/languages/java";
 import sql from "highlight.js/lib/languages/sql";
 import MarkdownIt from "markdown-it";
-import { buildFileTree, type FileTreeNode } from "@revizorro/core";
+import { buildFileTree, fileReviewState, type FileTreeNode } from "@revizorro/core";
 
 hljs.registerLanguage("typescript", typescript);
 hljs.registerLanguage("javascript", javascript);
@@ -782,14 +782,40 @@ function treeRows(node: FileTreeNode, depth: number, byPath: Map<string, FileVie
     return [row, kids];
   }
 
-  row.append(el("span", "nm", node.name));
   const f = byPath.get(node.path);
-  if (!f) return [row];
-  if (f.viewed) row.classList.add("viewed");
+  if (!f) {
+    row.append(el("span", "nm", node.name));
+    return [row];
+  }
+  const s = fileReviewState(f.threads, f.viewed);
+  // Leading marker, in priority order: unresolved threads win over every "done"
+  // signal, so an agent comment on a ticked-off file drags it back into view.
+  const mark = el("span", "mark");
+  if (s.openThreads > 0) {
+    mark.textContent = "●";
+    mark.classList.add("open");
+    mark.title = `${s.openThreads} unresolved thread(s)`;
+  } else if (s.allResolved) {
+    mark.textContent = "✓";
+    mark.classList.add("done");
+    mark.title = "all threads resolved";
+  } else if (f.viewed) {
+    mark.textContent = "✓";
+    mark.classList.add("seen");
+    mark.title = "marked viewed";
+  } else {
+    mark.textContent = "•";
+    mark.classList.add("todo");
+    mark.title = "not reviewed yet";
+  }
+  row.append(mark, el("span", "nm", node.name));
+  if (f.viewed && !s.needsAttention) row.classList.add("viewed");
+  if (s.allResolved) row.classList.add("allresolved");
+  if (s.needsAttention) row.classList.add("attention");
   if (f.oldPath) row.classList.add("moved");
+
   const stat = el("span", "stat");
-  const openThreads = f.threads.filter((t) => !t.resolved).length;
-  if (openThreads > 0) stat.append(el("span", "cmt", `💬${openThreads} `));
+  if (s.openThreads > 0) stat.append(el("span", "cmt", `💬${s.openThreads} `));
   if (!f.binary) {
     const { add, del } = diffStat(f.patch);
     if (add > 0) stat.append(el("span", "add", `+${add}`));
@@ -797,7 +823,16 @@ function treeRows(node: FileTreeNode, depth: number, byPath: Map<string, FileVie
     if (del > 0) stat.append(el("span", "del", `−${del}`));
   }
   row.append(stat);
-  row.title = f.oldPath ? `${f.oldPath} → ${f.path}` : f.path;
+  const where = f.oldPath ? `${f.oldPath} → ${f.path}` : f.path;
+  const threadNote =
+    s.openThreads > 0
+      ? `${s.openThreads} unresolved`
+      : s.allResolved
+        ? "all threads resolved"
+        : f.viewed
+          ? "viewed"
+          : "not reviewed";
+  row.title = `${where}\n${threadNote}`;
   row.onclick = () => {
     revealFile(f.path);
   };
@@ -807,16 +842,54 @@ function treeRows(node: FileTreeNode, depth: number, byPath: Map<string, FileVie
 function renderTree(files: FileView[]): void {
   const root = document.getElementById("tree");
   if (!root) return;
+  // Keep the reader's place: a re-render (agent reply, resolve) must not scroll
+  // the navigator back to the top.
+  const scroll = root.scrollTop;
   root.innerHTML = "";
-  const viewedCount = files.filter((f) => f.viewed).length;
+  const states = files.map((f) => fileReviewState(f.threads, f.viewed));
+  const openTotal = states.reduce((n, s) => n + s.openThreads, 0);
+  const doneCount = states.filter((s) => !s.needsAttention).length;
   const head = el("div", "tree-head");
   head.append(el("span", "nm", `${files.length} file${files.length === 1 ? "" : "s"}`));
-  if (viewedCount > 0) head.append(el("span", "stat", `${viewedCount} viewed`));
+  const summary = el("span", "stat");
+  if (openTotal > 0) summary.append(el("span", "cmt", `💬${openTotal} open`));
+  else summary.append(el("span", "done", `${doneCount}/${files.length} done`));
+  head.append(summary);
   root.append(head);
   const byPath = new Map(files.map((f) => [f.path, f]));
   for (const node of buildFileTree(files.map((f) => f.path))) {
     root.append(...treeRows(node, 0, byPath));
   }
+  root.scrollTop = scroll;
+}
+
+// Drag the divider to resize the navigator; the width outlives re-renders.
+let treeWidth = 17;
+function applyTreeWidth(): void {
+  document.getElementById("main")?.style.setProperty("--tree-w", `${treeWidth}rem`);
+}
+function bindTreeResizer(): void {
+  const grip = document.getElementById("treeResizer");
+  const main = document.getElementById("main");
+  if (!grip || !main) return;
+  grip.addEventListener("mousedown", (e: MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = treeWidth;
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const onMove = (m: MouseEvent) => {
+      treeWidth = Math.min(45, Math.max(9, startWidth + (m.clientX - startX) / rem));
+      applyTreeWidth();
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.classList.remove("resizing");
+    };
+    document.body.classList.add("resizing");
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
 }
 
 function setTreeVisible(visible: boolean): void {
@@ -879,6 +952,8 @@ if (treeToggle) {
   };
 }
 setTreeVisible(treeVisible);
+applyTreeWidth();
+bindTreeResizer();
 
 // Native text selection → floating "Comment" bubble. Select any code (part of a
 // line or across lines) and a bubble offers to comment on the spanned range.
