@@ -84,12 +84,43 @@ export function listHosts(): HostEntry[] {
   return out;
 }
 
+/** Drop a trailing slash so "/repo/x/" and "/repo/x" compare equal. */
+function normalizePath(p: string): string {
+  return p.length > 1 && p.endsWith("/") ? p.replace(/\/+$/, "") : p;
+}
+
+/** True when `child` is the same path as `parent` or lives inside it. */
+function contains(parent: string, child: string): boolean {
+  return child === parent || child.startsWith(`${parent}/`);
+}
+
 /**
- * Hosts a CLI targeting `repoRoot` should try, best first: a window that has THIS
- * project open is preferred, then any other window.
+ * How strongly a window owns the reviewed repo — higher wins. A worktree or a
+ * subdirectory still belongs to the project's window, which is what makes the form
+ * appear where the human is looking instead of in some unrelated window.
+ */
+function affinity(project: string, repoRoot: string): number {
+  const win = normalizePath(project);
+  const repo = normalizePath(repoRoot);
+  if (!win) return 0;
+  if (win === repo) return 3;
+  if (contains(win, repo)) return 2; // reviewing a worktree / subdir of that window's project
+  if (contains(repo, win)) return 1; // window sits on a subdirectory of the reviewed repo
+  return 0;
+}
+
+/** True when this window has the reviewed project (or a parent/child of it) open. */
+export function hostMatchesProject(host: HostEntry, repoRoot: string): boolean {
+  return affinity(host.project, repoRoot) > 0;
+}
+
+/**
+ * Hosts a CLI targeting `repoRoot` should try, best first: the window owning THIS
+ * project (exactly, or as the parent of the reviewed worktree) comes first, any
+ * other window after — ordered by port so the choice is never left to readdir.
  */
 export function orderedHosts(repoRoot: string): HostEntry[] {
   return listHosts().sort(
-    (a, b) => Number(b.project === repoRoot) - Number(a.project === repoRoot),
+    (a, b) => affinity(b.project, repoRoot) - affinity(a.project, repoRoot) || a.port - b.port,
   );
 }

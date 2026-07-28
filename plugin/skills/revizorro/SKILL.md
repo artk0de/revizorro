@@ -93,10 +93,20 @@ windows are skipped and cleaned up automatically.
      After answering all, re-enter with `revizorro review --worktree` to wait for
      the human's next decision. Loop back to step 2.
 
-   - **`closed`** — the human closed the review form without a verdict (no
-     approve / request changes). Do NOT re-arm blindly and do NOT merge. Ask
-     the user how to proceed (resume, merge anyway, or abort). Re-entering
-     `revizorro review --worktree` reopens the same open round if they resume.
+   - **`closed`** — the human closed the review tab without a verdict, so they
+     interrupted the review on purpose. Do NOT re-arm blindly, do NOT merge, and
+     do NOT keep working as if nothing happened. Stop and ask what to do, offering
+     exactly these three options:
+
+     - **Re-run the review** — reopen the form on the current diff
+       (`revizorro review --worktree` reopens the same round) and continue the loop.
+     - **Commit as is** — leave the review loop and commit the worktree as it stands.
+     - **Chat about this** — leave the loop and discuss the change in chat instead.
+
+     Ask in the language the user has been writing in: translate the question and
+     the three labels into that language, keeping their meaning. Never answer in
+     English to a user who writes in another language. Wait for their answer before
+     doing anything else.
 
 ## Push-file shape
 
@@ -119,8 +129,12 @@ the diff. Either array may be empty.
 - Do NOT merge on `changes_requested`. Fix, re-submit, and wait for `approved`.
 - On `clarify`, only answer — never edit code.
 - On `approved`, the review gate has passed — you may merge the worktree.
-- On `closed`, the human left without deciding — ask the user; never merge and
-  never silently re-loop.
+- On `closed`, the human interrupted the review — ask them to choose between
+  re-running the review, committing as is, and chatting about it (in their own
+  language). Never merge and never silently re-loop.
+- The form opens in the VS Code window that owns the reviewed project. If the CLI
+  warns on stderr that no window has this project open, tell the user which window
+  the form went to — they may be watching the wrong one.
 - A verdict is never lost between calls. If the human decided while you were not
   blocked on `review`, the next `revizorro review --worktree` returns that
   decision instead of opening a new round — so an approval that arrived while you

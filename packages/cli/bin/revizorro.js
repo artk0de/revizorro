@@ -7,6 +7,7 @@ import {
   orderedHosts,
   unregisterHost,
   isDeadHostError,
+  hostMatchesProject,
 } from "@revizorro/core-adapters";
 import { PushPayload } from "@revizorro/protocol";
 import { runReview, resolveWorktreeId } from "@revizorro/cli";
@@ -47,15 +48,26 @@ async function main() {
     process.exit(exitCode);
   }
 
-  // Prefer a window that has THIS project open; else any window with the extension.
-  const ports = orderedHosts(repoRoot).map((h) => h.port);
-  if (ports.length === 0) {
+  // Prefer the window that owns THIS project (or the worktree's parent project);
+  // fall back to any window with the extension.
+  const hosts = orderedHosts(repoRoot);
+  if (hosts.length === 0) {
     throw new Error(
       "no revizorro window found — open a folder in VS Code with the revizorro extension",
     );
   }
 
-  for (const port of ports) {
+  for (const host of hosts) {
+    const port = host.port;
+    // Falling back to an unrelated window is legitimate (the agent may run from a
+    // terminal with no window of its own), but the form then opens somewhere the
+    // human is not looking — say so instead of leaving them staring at a dead tab.
+    if (!hostMatchesProject(host, repoRoot)) {
+      process.stderr.write(
+        `revizorro: no VS Code window has ${repoRoot} open — the review form will appear in ` +
+          `the window for ${host.project || "(no project)"}\n`,
+      );
+    }
     try {
       const { stdout, exitCode } = await runReview(argv, {
         transport: new HttpReviewClient(port),
@@ -77,7 +89,7 @@ async function main() {
     }
   }
   throw new Error(
-    `no live revizorro window (tried ${ports.length}) — a window was reloaded or its ` +
+    `no live revizorro window (tried ${hosts.length}) — a window was reloaded or its ` +
       `extension updated mid-review. Reload a VS Code window with the extension, then re-run review`,
   );
 }
