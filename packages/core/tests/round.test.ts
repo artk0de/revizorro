@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { startRound, applyDecision, markVerdictDelivered } from "../src/index.js";
+import {
+  startRound,
+  applyDecision,
+  markVerdictDelivered,
+  markVerdictPending,
+  isVerdictReplayable,
+} from "../src/index.js";
 import type { SessionState } from "@revizorro/protocol";
 
 describe("startRound", () => {
@@ -53,6 +59,24 @@ describe("applyDecision", () => {
     const s = markVerdictDelivered(applyDecision(startRound(null, "wt1", []), "approved"));
     expect(s.verdictDelivered).toBe(true);
     expect(s.status).toBe("approved");
+  });
+  it("replays a verdict the agent just missed (it was starting up)", () => {
+    const now = 1_000_000;
+    const s = markVerdictPending(applyDecision(startRound(null, "wt1", []), "approved"), now);
+    expect(isVerdictReplayable(s, now + 3_000)).toBe(true);
+  });
+  it("stops replaying a stale verdict — a later review wants a new round", () => {
+    const now = 1_000_000;
+    const s = markVerdictPending(applyDecision(startRound(null, "wt1", []), "approved"), now);
+    expect(isVerdictReplayable(s, now + 60 * 60 * 1000)).toBe(false);
+  });
+  it("never replays a verdict the agent already received", () => {
+    const now = 1_000_000;
+    const s = markVerdictDelivered(applyDecision(startRound(null, "wt1", []), "approved"));
+    expect(isVerdictReplayable(s, now)).toBe(false);
+  });
+  it("never replays while the round is still open", () => {
+    expect(isVerdictReplayable(startRound(null, "wt1", []), 1_000_000)).toBe(false);
   });
   it("clears the delivery flag when the next round opens", () => {
     const decided = applyDecision(startRound(null, "wt1", []), "changes_requested");

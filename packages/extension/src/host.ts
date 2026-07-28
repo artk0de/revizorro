@@ -4,6 +4,8 @@ import {
   applyPush,
   applyDecision,
   markVerdictDelivered,
+  markVerdictPending,
+  isVerdictReplayable,
   editMessage,
   type DiffFile,
   type ReviewOptions,
@@ -100,10 +102,11 @@ export class ReviewHost {
       this.onOpen(cur, c.lastDiff);
       return;
     }
-    // A decided round whose verdict never reached an agent — the human approved
-    // while nothing was blocked on `review`, so the event went nowhere. Replay it
-    // instead of quietly opening a new round on top of a decision nobody saw.
-    if (cur && !cur.verdictDelivered) {
+    // A verdict decided moments ago that never reached an agent — the human hit
+    // approve while the CLI was still starting its poll. Hand it over now. Past the
+    // replay window this is a request for the NEXT round, not a question about the
+    // last one, so a stale approval must not be served here.
+    if (cur && isVerdictReplayable(cur, Date.now())) {
       await c.store.save(markVerdictDelivered(cur));
       this.events.emit(c.worktreeId, this.verdictEvent(cur));
       return;
@@ -137,10 +140,10 @@ export class ReviewHost {
       : { type: "decision", verdict: "changes_requested", comments: this.openComments(s) };
   }
 
-  /** Emit a verdict; if no agent was listening, leave it pending so it can be replayed. */
+  /** Emit a verdict; if no agent was listening, leave it briefly replayable. */
   private async deliverVerdict(c: ReviewCtx, s: SessionState): Promise<void> {
     if (this.events.emit(c.worktreeId, this.verdictEvent(s))) return;
-    await c.store.save({ ...s, verdictDelivered: false });
+    await c.store.save(markVerdictPending(s, Date.now()));
   }
 
   /** Recompute the diff and open a fresh review round (collapsing unchanged viewed files). */

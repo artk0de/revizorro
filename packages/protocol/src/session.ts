@@ -23,6 +23,8 @@ export const SessionState = z.object({
    * undelivered verdict is replayed on the next review instead of being lost.
    */
   verdictDelivered: z.boolean().default(false),
+  /** When an undelivered verdict started waiting (ms epoch) — replay expires. */
+  verdictPendingSince: z.number().optional(),
 });
 export type SessionState = z.infer<typeof SessionState>;
 export type Thread = z.infer<typeof Thread>;

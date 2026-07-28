@@ -21,5 +21,29 @@ export function applyDecision(
 
 /** Record that an agent has actually received the verdict, so it is never replayed twice. */
 export function markVerdictDelivered(state: SessionState): SessionState {
-  return { ...state, verdictDelivered: true };
+  return { ...state, verdictDelivered: true, verdictPendingSince: undefined };
+}
+
+/**
+ * How long an undelivered verdict stays replayable. This exists to close one narrow
+ * race — the human decides in the instant between the agent launching `review` and
+ * its long poll being registered — NOT to resurrect old decisions. Past the window a
+ * `review` call means "start the next round", and replaying a stale approval there
+ * would answer a question the agent never asked.
+ */
+export const VERDICT_REPLAY_WINDOW_MS = 120_000;
+
+/** Mark a verdict nobody was listening for, starting its replay window at `now`. */
+export function markVerdictPending(state: SessionState, now: number): SessionState {
+  return { ...state, verdictDelivered: false, verdictPendingSince: now };
+}
+
+export function isVerdictReplayable(
+  state: SessionState,
+  now: number,
+  windowMs: number = VERDICT_REPLAY_WINDOW_MS,
+): boolean {
+  if (state.status === "open" || state.verdictDelivered) return false;
+  const since = state.verdictPendingSince;
+  return since !== undefined && now - since < windowMs;
 }
