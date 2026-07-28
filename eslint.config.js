@@ -130,9 +130,10 @@ export default tseslint.config(
     },
   },
 
-  // Plain JS / mjs (bin, scripts) — no type info
+  // Plain JS / mjs (bin, scripts, root configs) — outside tsconfig, so no type
+  // info: type-aware rules would fail to parse them rather than check them.
   {
-    files: ["packages/*/bin/**/*.js", "scripts/**/*.mjs"],
+    files: ["packages/*/bin/**/*.js", "scripts/**/*.mjs", "*.config.js"],
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: { globals: globals.node },
   },
