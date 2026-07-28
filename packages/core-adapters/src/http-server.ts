@@ -5,7 +5,26 @@ import type { ReviewOptions } from "@revizorro/core";
 
 type Waiter = (e: ReviewEvent) => void;
 
+/**
+ * How long one call may block before it is answered with `idle`. A review can take
+ * the human all afternoon, but a single CLI call that never returns reads as a hung
+ * command — so each poll is bounded and the agent re-arms.
+ */
+const DEFAULT_POLL_TIMEOUT_MS = 60_000;
+
+export interface HttpReviewHostOptions {
+  pollTimeoutMs?: number;
+}
+
 export class HttpReviewHost {
+  private readonly pollTimeoutMs: number;
+
+  constructor(options: HttpReviewHostOptions = {}) {
+    const fromEnv = Number(process.env.REVIZORRO_POLL_TIMEOUT_MS);
+    this.pollTimeoutMs =
+      options.pollTimeoutMs ?? (Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : DEFAULT_POLL_TIMEOUT_MS);
+  }
+
   private server?: Server;
   private readonly waiters = new Map<string, Waiter[]>();
   /** Events raised while no agent was polling, waiting for its next call. */
@@ -84,11 +103,22 @@ export class HttpReviewHost {
         // synchronously emit an event, which must find a waiting client.
         const list = this.waiters.get(worktreeId) ?? [];
         const waiter: Waiter = (event) => {
+          clearTimeout(timer);
           res.setHeader("content-type", "application/json");
           res.end(JSON.stringify(event));
         };
         list.push(waiter);
         this.waiters.set(worktreeId, list);
+        // Bound the poll: pull this waiter out of the queue and answer `idle` so the
+        // agent's command returns and the loop re-arms.
+        const timer = setTimeout(() => {
+          const queue = this.waiters.get(worktreeId);
+          const at = queue?.indexOf(waiter) ?? -1;
+          if (!queue || at < 0) return;
+          queue.splice(at, 1);
+          waiter({ type: "idle" });
+        }, this.pollTimeoutMs);
+        timer.unref?.();
         // A cancelled command or a closed terminal leaves its request behind. Left in
         // the queue it stays first in line and swallows the next event — the human
         // approves, and the agent that is actually listening never hears about it.

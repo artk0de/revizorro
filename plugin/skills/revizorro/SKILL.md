@@ -82,14 +82,18 @@ windows are skipped and cleaned up automatically.
      but do NOT edit code yet. You may reply via `--push` if a clarification
      helps. Fixes are applied later, on `changes_requested`. Loop back to step 2.
 
-   - **`idle`** — no human action before the poll cutoff. Just re-arm:
+   - **`idle`** — the human has not acted yet and the poll hit its cutoff (about a
+     minute). Nothing is wrong; just re-arm:
 
      ```bash
-     revizorro review --worktree
+     revizorro review
      ```
 
-     Loop back to step 2. (This keeps each call under the host timeout; total
-     review time is unbounded.)
+     Loop back to step 2. Re-arm with NO scope flags: a bare call keeps reviewing
+     whatever the round is already showing, while `--worktree` would widen a
+     staged-only review to the whole branch. Each call is bounded, the review
+     itself is not — expect to loop through several `idle` events while the human
+     reads.
 
    - **`decision` / `approved`** — the human approved. Stop the loop. Proceed to
      merge (or report ready-to-merge).
@@ -97,10 +101,10 @@ windows are skipped and cleaned up automatically.
    - **`decision` / `changes_requested`** `{ comments: [...] }` — NOW apply fixes
      for every comment. For each addressed comment, `--push` a reply into its
      thread saying what you did (so the human can verify and mark it resolved).
-     Then start a NEW round:
+     Then start a NEW round, keeping the same scope (no flags):
 
      ```bash
-     revizorro review --worktree
+     revizorro review
      ```
 
      Unchanged files the human already marked viewed will be collapsed. Loop back
@@ -110,8 +114,8 @@ windows are skipped and cleaned up automatically.
      NOT code changes. Answer EVERY comment in the list: `--push` a reply into
      each thread. Do not edit code. The form stays open and shows a loader per
      unanswered thread (and a top-bar total) that clears as your replies land.
-     After answering all, re-enter with `revizorro review --worktree` to wait for
-     the human's next decision. Loop back to step 2.
+     After answering all, re-enter with `revizorro review` to wait for the human's
+     next decision. Loop back to step 2.
 
    - **`closed`** — the human closed the review tab without a verdict, so they
      interrupted the review on purpose. Do NOT re-arm blindly, do NOT merge, and
@@ -119,7 +123,7 @@ windows are skipped and cleaned up automatically.
      exactly these three options:
 
      - **Re-run the review** — reopen the form on the current diff
-       (`revizorro review --worktree` reopens the same round) and continue the loop.
+       (`revizorro review` starts a fresh round in the same scope) and continue the loop.
      - **Commit as is** — leave the review loop and commit the worktree as it stands.
      - **Chat about this** — leave the loop and discuss the change in chat instead.
 
@@ -156,9 +160,12 @@ the diff. Either array may be empty.
   warns on stderr that no window has this project open, tell the user which window
   the form went to — they may be watching the wrong one.
 - A verdict is never lost between calls. If the human decided while you were not
-  blocked on `review`, the next `revizorro review --worktree` returns that
-  decision instead of opening a new round — so an approval that arrived while you
-  were busy still reaches you.
+  blocked on `review`, the next `revizorro review` returns that decision instead
+  of opening a new round — so an approval that arrived while you were busy still
+  reaches you.
+- Re-arm with a bare `revizorro review`. Scope flags belong on the call that
+  STARTS a review; repeating `--worktree` on every loop would widen a staged-only
+  review to the whole branch.
 - `revizorro review --check` is a cheap preflight: exit 10 means the diff has
   something to review, exit 0 means it is empty. It touches no VS Code window, so
   use it before opening a form on an empty change. It honours `--staged-only`

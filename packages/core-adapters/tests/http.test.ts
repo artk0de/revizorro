@@ -182,6 +182,29 @@ describe("HTTP transport contract", () => {
     expect(await live).toEqual({ type: "decision", verdict: "approved", comments: [] });
   });
 
+  // Without this the call never returns: the agent's command sits there for as
+  // long as the human takes to click something, looking like a hung tool.
+  it("answers a poll with idle instead of blocking forever", async () => {
+    host = new HttpReviewHost({ pollTimeoutMs: 150 });
+    const port = await host.start();
+    host.onReview(() => undefined);
+    const started = Date.now();
+    expect(await new HttpReviewClient(port).review("wt1", "/repo")).toEqual({ type: "idle" });
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it("does not time a poll out once an event has been delivered", async () => {
+    host = new HttpReviewHost({ pollTimeoutMs: 150 });
+    const port = await host.start();
+    host.onReview(() => undefined);
+    const pending = new HttpReviewClient(port).review("wt1", "/repo");
+    await new Promise((r) => setTimeout(r, 20));
+    host.emit("wt1", { type: "decision", verdict: "approved", comments: [] });
+    expect(await pending).toMatchObject({ verdict: "approved" });
+    // The timer must not fire afterwards and try to answer a finished response.
+    await new Promise((r) => setTimeout(r, 250));
+  });
+
   it("surfaces a client push to the host", async () => {
     host = new HttpReviewHost();
     const port = await host.start();
