@@ -20,6 +20,20 @@ describe("FsSessionStore", () => {
     await store.save(s);
     expect(await store.load("wt1")).toEqual(s);
   });
+  // The host saves from several places at once — an agent push landing while the
+  // human posts a comment. Sharing one temp filename made those saves race and the
+  // loser blow up with ENOENT on rename.
+  it("survives concurrent saves of the same session", async () => {
+    const store = new FsSessionStore(root);
+    const base = startRound(null, "wt1", [{ path: "a.ts", contentHash: "h1" }]);
+    await Promise.all(
+      Array.from({ length: 8 }, (_, i) => store.save({ ...base, round: i + 1 })),
+    );
+    const loaded = await store.load("wt1");
+    expect(loaded).not.toBeNull();
+    expect(loaded?.worktreeId).toBe("wt1");
+  });
+
   it("returns null for a session written by an incompatible schema instead of throwing", async () => {
     const store = new FsSessionStore(root);
     const p = join(root, ".claude", "revizorro", "wt1", "session.json");

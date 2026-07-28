@@ -4,6 +4,9 @@ import { SessionState } from "@revizorro/protocol";
 import type { SessionStore } from "@revizorro/core";
 
 export class FsSessionStore implements SessionStore {
+  /** Distinguishes concurrent writes within this process. */
+  private static writes = 0;
+
   constructor(private readonly repoRoot: string) {}
 
   private path(worktreeId: string): string {
@@ -31,7 +34,10 @@ export class FsSessionStore implements SessionStore {
   async save(s: SessionState): Promise<void> {
     const p = this.path(s.worktreeId);
     await mkdir(dirname(p), { recursive: true });
-    const tmp = `${p}.tmp`;
+    // Saves overlap — an agent push can land while the human posts a comment — so
+    // each writer needs its own temp file. A shared one made the slower writer fail
+    // on rename after the faster one had already moved it away.
+    const tmp = `${p}.${process.pid}.${(FsSessionStore.writes += 1)}.tmp`;
     await writeFile(tmp, JSON.stringify(s, null, 2), "utf8");
     await rename(tmp, p);
   }
