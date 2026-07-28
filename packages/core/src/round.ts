@@ -26,6 +26,24 @@ export function scopeChanged(state: SessionState, scope: ReviewScope): boolean {
   return cur.stagedOnly !== scope.stagedOnly || cur.baseRef !== scope.baseRef;
 }
 
+/**
+ * The scope a review call should actually run with. The scope belongs to the ROUND,
+ * not to each command: an agent that omits --staged-only on a follow-up call (a
+ * --push, or simply re-arming the loop) must not flip the human's review over to
+ * the whole branch. Only an explicit request changes it, and only an open round is
+ * inherited from — a decided one is finished, and the next review starts clean.
+ */
+export function resolveScope(
+  open: SessionState | null,
+  requested: Partial<ReviewScope>,
+): ReviewScope {
+  const inherited = open?.status === "open" ? (open.scope ?? WHOLE_BRANCH) : WHOLE_BRANCH;
+  return {
+    stagedOnly: requested.stagedOnly ?? inherited.stagedOnly,
+    baseRef: requested.baseRef ?? inherited.baseRef,
+  };
+}
+
 export function applyDecision(
   state: SessionState,
   verdict: "approved" | "changes_requested",

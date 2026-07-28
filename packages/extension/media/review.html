@@ -24,6 +24,35 @@
       }
       .toolbar .grow { flex: 1; }
       .round { opacity: 0.7; font-size: 0.85em; }
+      /* what is being reviewed, how big it is, how far the human has got */
+      .scope {
+        font-size: 0.78em;
+        padding: 0.1em 0.5em;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 999px;
+        opacity: 0.85;
+        white-space: nowrap;
+      }
+      .stats { font-size: 0.82em; opacity: 0.85; white-space: nowrap; }
+      .stats .add, .tree .node .add { color: var(--vscode-testing-iconPassed); }
+      .stats .del, .tree .node .del { color: var(--vscode-testing-iconFailed); }
+      .progress { display: flex; align-items: center; gap: 0.4rem; }
+      .progress-track {
+        width: 6rem;
+        height: 0.4rem;
+        border-radius: 999px;
+        background: var(--vscode-panel-border);
+        overflow: hidden;
+      }
+      .progress-bar {
+        display: block;
+        height: 100%;
+        width: 0;
+        background: var(--vscode-progressBar-background, var(--vscode-button-background));
+        transition: width 0.2s ease;
+      }
+      .progress-bar.full { background: var(--vscode-testing-iconPassed); }
+      .progress-label { font-size: 0.78em; opacity: 0.75; white-space: nowrap; }
       button {
         cursor: pointer;
         background: var(--vscode-button-secondaryBackground);
@@ -513,6 +542,12 @@
     <div class="toolbar">
       <button id="treeToggle" class="tipbtn tip-left" data-tip="Show / hide the file tree">🗂</button>
       <span class="round" id="round"></span>
+      <span class="scope" id="scope"></span>
+      <span class="stats" id="stats"></span>
+      <span class="progress" id="progress" style="display: none">
+        <span class="progress-track"><span class="progress-bar" id="progressBar"></span></span>
+        <span class="progress-label" id="progressLabel"></span>
+      </span>
       <span class="toploader" id="toploader"></span>
       <button id="toggle" class="tipbtn tip-left" data-tip="Toggle inline / side-by-side diff">⇆ split/inline</button>
       <span class="grow"></span>

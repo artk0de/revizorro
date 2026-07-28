@@ -7,6 +7,7 @@ import {
   markVerdictPending,
   isVerdictReplayable,
   scopeChanged,
+  resolveScope,
   editMessage,
   type DiffFile,
   type ReviewOptions,
@@ -51,11 +52,11 @@ export class ReviewHost {
     private readonly onOpen: (s: SessionState, diff: DiffFile[]) => void,
   ) {
     this.events.onPush((wt, repoRoot, push, opts) => {
-      void this.handlePush(this.ctx(repoRoot, wt, opts), push);
+      void this.withCtx(repoRoot, wt, opts, (c) => this.handlePush(c, push));
     });
     // The form appears when the agent runs `review` — not on activation/reload.
     this.events.onReview((wt, repoRoot, opts) => {
-      void this.openForReview(this.ctx(repoRoot, wt, opts));
+      void this.withCtx(repoRoot, wt, opts, (c) => this.openForReview(c));
     });
   }
 
@@ -71,10 +72,27 @@ export class ReviewHost {
     }, 0);
   }
 
+  /**
+   * Resolve the scope against the open round before building the context: a call
+   * that names no scope keeps reviewing whatever the round is already showing.
+   */
+  private async withCtx(
+    repoRoot: string,
+    worktreeId: string,
+    opts: ReviewOptions,
+    run: (c: ReviewCtx) => Promise<void>,
+  ): Promise<void> {
+    const open = await new FsSessionStore(repoRoot).load(worktreeId);
+    const scope = resolveScope(open, {
+      ...(opts.stagedOnly === undefined ? {} : { stagedOnly: opts.stagedOnly }),
+      ...(opts.baseRef === undefined ? {} : { baseRef: opts.baseRef }),
+    });
+    await run(this.ctx(repoRoot, worktreeId, scope));
+  }
+
   /** Get (or build) the session context for a repoRoot, making it the active review. */
-  private ctx(repoRoot: string, worktreeId: string, opts: ReviewOptions = {}): ReviewCtx {
-    const stagedOnly = opts.stagedOnly === true;
-    const baseRef = opts.baseRef ?? "";
+  private ctx(repoRoot: string, worktreeId: string, scope: ReviewScope): ReviewCtx {
+    const { stagedOnly, baseRef } = scope;
     // The diff source is baked into the provider, so switching --staged-only or the
     // target branch mid-flight has to rebuild the context (and drop the cached diff).
     if (

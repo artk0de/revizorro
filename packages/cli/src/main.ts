@@ -43,8 +43,16 @@ export async function runReview(
   const pushIdx = argv.indexOf("--push");
   const push = pushIdx >= 0 ? deps.readPush(argv[pushIdx + 1]) : undefined;
   const baseIdx = argv.indexOf("--base");
+  // Only send what was actually asked for. A call with no scope flags inherits the
+  // open round's scope, so forgetting --staged-only on a follow-up (a --push, or
+  // re-arming the loop) cannot silently widen the review to the whole branch.
+  const stagedOnly = argv.includes("--staged-only")
+    ? true
+    : argv.includes("--worktree")
+      ? false
+      : undefined;
   const event = await deps.transport.review(deps.worktreeId, deps.repoRoot, push, {
-    stagedOnly: argv.includes("--staged-only"),
+    ...(stagedOnly === undefined ? {} : { stagedOnly }),
     ...(baseIdx >= 0 && argv[baseIdx + 1] ? { baseRef: argv[baseIdx + 1] } : {}),
   });
   return { stdout: JSON.stringify(event), exitCode: 0 };

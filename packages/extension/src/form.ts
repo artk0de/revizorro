@@ -55,6 +55,7 @@ export class ReviewForm {
       type: "state",
       round: state.round,
       status: state.status,
+      scope: state.scope,
       viewMode: this.viewMode,
       files,
     };

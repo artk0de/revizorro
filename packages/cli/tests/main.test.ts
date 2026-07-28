@@ -81,6 +81,22 @@ describe("runReview", () => {
     });
     expect(opts).toEqual({ stagedOnly: true });
   });
+  it("sends no scope at all when the call names none, so the round keeps its own", async () => {
+    let opts: ReviewOptions | undefined;
+    const transport: ReviewTransport = {
+      review: async (_wt, _repoRoot, _push, o) => {
+        opts = o;
+        return { type: "idle" };
+      },
+    };
+    await runReview(["review", "--push", "p.json"], {
+      transport,
+      worktreeId: "wt1",
+      repoRoot: "/repo",
+      readPush: () => ({ replies: [{ threadId: "t1", body: "done" }], comments: [] }),
+    });
+    expect(opts).toEqual({});
+  });
   it("reviews the whole worktree when --staged-only is absent", async () => {
     let opts: ReviewOptions | undefined;
     const transport: ReviewTransport = {

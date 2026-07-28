@@ -39,6 +39,7 @@ interface Msg {
   type: string;
   round: number;
   status: string;
+  scope?: { stagedOnly: boolean; baseRef: string };
   viewMode?: string;
   files: FileView[];
 }
@@ -898,10 +899,60 @@ function setTreeVisible(visible: boolean): void {
   document.getElementById("treeToggle")?.classList.toggle("on", visible);
 }
 
+// Toolbar summary: what is being reviewed, how big it is, and how far the human
+// has got — the three questions asked when a diff first opens.
+function renderSummary(files: FileView[]): void {
+  const scopeEl = document.getElementById("scope");
+  if (scopeEl) {
+    const scope = state?.scope;
+    scopeEl.textContent = scope?.stagedOnly
+      ? "staged only"
+      : `branch vs ${scope?.baseRef || "default branch"}`;
+    scopeEl.title = scope?.stagedOnly
+      ? "reviewing the staged change against HEAD"
+      : `reviewing the branch against ${scope?.baseRef || "its target branch"}`;
+  }
+
+  const stats = document.getElementById("stats");
+  if (stats) {
+    stats.innerHTML = "";
+    let add = 0;
+    let del = 0;
+    for (const f of files) {
+      if (f.binary) continue;
+      const d = diffStat(f.patch);
+      add += d.add;
+      del += d.del;
+    }
+    stats.append(
+      el("span", undefined, `${files.length} file${files.length === 1 ? "" : "s"} `),
+      el("span", "add", `+${add}`),
+      document.createTextNode(" "),
+      el("span", "del", `−${del}`),
+    );
+  }
+
+  const done = files.filter((f) => !fileReviewState(f.threads, f.viewed).needsAttention).length;
+  const pct = files.length > 0 ? Math.round((done / files.length) * 100) : 0;
+  const label = document.getElementById("progressLabel");
+  if (label) label.textContent = `${done}/${files.length} reviewed`;
+  const bar = document.getElementById("progressBar");
+  if (bar) {
+    bar.style.width = `${pct}%`;
+    bar.classList.toggle("full", done === files.length && files.length > 0);
+  }
+  const wrap = document.getElementById("progress");
+  if (wrap) {
+    wrap.style.display = files.length > 0 ? "flex" : "none";
+    wrap.title = `${done} of ${files.length} files reviewed (viewed, no unresolved threads)`;
+  }
+}
+
 function render(): void {
   if (!state) return;
   const round = document.getElementById("round");
   if (round) round.textContent = `round ${state.round} · ${state.status}`;
+  renderSummary(state.files);
   const toggle = document.getElementById("toggle");
   if (toggle) {
     const mode = state.viewMode || "inline";

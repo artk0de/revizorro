@@ -6,6 +6,7 @@ import {
   markVerdictPending,
   isVerdictReplayable,
   scopeChanged,
+  resolveScope,
 } from "../src/index.js";
 import type { SessionState } from "@revizorro/protocol";
 
@@ -69,6 +70,35 @@ describe("review scope", () => {
     const open = startRound(null, "wt1", [], { stagedOnly: false, baseRef: "develop" });
     expect(scopeChanged(open, { stagedOnly: false, baseRef: "release/9" })).toBe(true);
     expect(scopeChanged(open, { stagedOnly: false, baseRef: "develop" })).toBe(false);
+  });
+
+  // The scope belongs to the round, not to each command. An agent that omits
+  // --staged-only on a follow-up call (a --push, say) must not silently flip the
+  // review to the whole branch behind the human's back.
+  it("keeps the open round's scope when the caller asks for nothing specific", () => {
+    const open = startRound(null, "wt1", [], { stagedOnly: true, baseRef: "develop" });
+    expect(resolveScope(open, {})).toEqual({ stagedOnly: true, baseRef: "develop" });
+  });
+
+  it("lets an explicit request override the open round's scope", () => {
+    const open = startRound(null, "wt1", [], staged);
+    expect(resolveScope(open, { stagedOnly: false })).toEqual({
+      stagedOnly: false,
+      baseRef: "",
+    });
+    expect(resolveScope(open, { baseRef: "release/9" })).toEqual({
+      stagedOnly: true,
+      baseRef: "release/9",
+    });
+  });
+
+  it("falls back to whole-branch when there is no round to inherit from", () => {
+    expect(resolveScope(null, {})).toEqual(whole);
+  });
+
+  it("does not inherit the scope of a round that is already decided", () => {
+    const decided = applyDecision(startRound(null, "wt1", [], staged), "approved");
+    expect(resolveScope(decided, {})).toEqual(whole);
   });
 
   it("treats a session written before scopes existed as whole-branch", () => {
