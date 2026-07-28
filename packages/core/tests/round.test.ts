@@ -5,6 +5,7 @@ import {
   markVerdictDelivered,
   markVerdictPending,
   isVerdictReplayable,
+  scopeChanged,
 } from "../src/index.js";
 import type { SessionState } from "@revizorro/protocol";
 
@@ -43,6 +44,37 @@ describe("startRound", () => {
     expect(s.round).toBe(2);
     expect(s.files["a.ts"].viewed).toBe(true);
     expect(s.threads.map((t) => t.id)).toEqual(["t2"]); // resolved dropped
+  });
+});
+
+describe("review scope", () => {
+  const staged = { stagedOnly: true, baseRef: "" };
+  const whole = { stagedOnly: false, baseRef: "" };
+
+  it("records the scope the round was opened with", () => {
+    expect(startRound(null, "wt1", [], staged).scope).toEqual(staged);
+  });
+
+  it("defaults to a whole-branch scope when none is given", () => {
+    expect(startRound(null, "wt1", []).scope).toEqual({ stagedOnly: false, baseRef: "" });
+  });
+
+  it("sees a switch between staged-only and whole-branch as a different review", () => {
+    const open = startRound(null, "wt1", [], whole);
+    expect(scopeChanged(open, staged)).toBe(true);
+    expect(scopeChanged(open, whole)).toBe(false);
+  });
+
+  it("sees a different target branch as a different review", () => {
+    const open = startRound(null, "wt1", [], { stagedOnly: false, baseRef: "develop" });
+    expect(scopeChanged(open, { stagedOnly: false, baseRef: "release/9" })).toBe(true);
+    expect(scopeChanged(open, { stagedOnly: false, baseRef: "develop" })).toBe(false);
+  });
+
+  it("treats a session written before scopes existed as whole-branch", () => {
+    const legacy = { ...startRound(null, "wt1", []), scope: undefined } as unknown as SessionState;
+    expect(scopeChanged(legacy, whole)).toBe(false);
+    expect(scopeChanged(legacy, staged)).toBe(true);
   });
 });
 

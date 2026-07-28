@@ -6,6 +6,7 @@ import {
   markVerdictDelivered,
   markVerdictPending,
   isVerdictReplayable,
+  scopeChanged,
   editMessage,
   type DiffFile,
   type ReviewOptions,
@@ -15,6 +16,7 @@ import type {
   FileRange,
   PushPayload,
   ReviewEvent,
+  ReviewScope,
   Side,
 } from "@revizorro/protocol";
 
@@ -105,8 +107,13 @@ export class ReviewHost {
   /** Open the form for a `review` call: re-render the open round, or start a fresh one. */
   private async openForReview(c: ReviewCtx): Promise<void> {
     const cur = await c.store.load(c.worktreeId);
-    if (cur?.status === "open") {
-      if (c.lastDiff.length === 0) c.lastDiff = await c.diff.diff(c.worktreeId);
+    // Continue the open round only when it is showing the SAME review. Asking for
+    // the staged change while a whole-branch round is open (or vice versa) is a new
+    // review and gets its own round — otherwise the form keeps the old scope.
+    if (cur?.status === "open" && !scopeChanged(cur, this.scopeOf(c))) {
+      // Always re-read the diff: the agent calls review again precisely because the
+      // tree moved on (fixes applied, files staged, work committed).
+      c.lastDiff = await c.diff.diff(c.worktreeId);
       this.onOpen(cur, c.lastDiff);
       return;
     }
@@ -154,11 +161,16 @@ export class ReviewHost {
     await c.store.save(markVerdictPending(s, Date.now()));
   }
 
+  /** What this context is reviewing — persisted on the round so scope changes are visible. */
+  private scopeOf(c: ReviewCtx): ReviewScope {
+    return { stagedOnly: c.stagedOnly, baseRef: c.baseRef };
+  }
+
   /** Recompute the diff and open a fresh review round (collapsing unchanged viewed files). */
   private async newRound(c: ReviewCtx): Promise<SessionState> {
     const prev = await c.store.load(c.worktreeId);
     c.lastDiff = await c.diff.diff(c.worktreeId);
-    const s = startRound(prev, c.worktreeId, c.lastDiff);
+    const s = startRound(prev, c.worktreeId, c.lastDiff, this.scopeOf(c));
     await c.store.save(s);
     return s;
   }

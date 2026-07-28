@@ -1,15 +1,29 @@
-import type { SessionState } from "@revizorro/protocol";
+import type { ReviewScope, SessionState } from "@revizorro/protocol";
 import { decideCollapsed, type DiffFile } from "./collapse.js";
+
+const WHOLE_BRANCH: ReviewScope = { stagedOnly: false, baseRef: "" };
 
 export function startRound(
   prev: SessionState | null,
   worktreeId: string,
   diff: DiffFile[],
+  scope: ReviewScope = WHOLE_BRANCH,
 ): SessionState {
   const round = prev ? prev.round + 1 : 1;
   const { files } = decideCollapsed(prev?.files ?? {}, diff);
   const threads = (prev?.threads ?? []).filter((t) => !t.resolved);
-  return { worktreeId, round, status: "open", files, threads, verdictDelivered: false };
+  return { worktreeId, round, status: "open", files, threads, verdictDelivered: false, scope };
+}
+
+/**
+ * Whether a review request asks for something other than what the open round is
+ * showing. Reviewing the staged change and reviewing the whole branch are different
+ * reviews: folding one into the other's open round leaves the human staring at the
+ * previous scope's file list.
+ */
+export function scopeChanged(state: SessionState, scope: ReviewScope): boolean {
+  const cur = state.scope ?? WHOLE_BRANCH;
+  return cur.stagedOnly !== scope.stagedOnly || cur.baseRef !== scope.baseRef;
 }
 
 export function applyDecision(

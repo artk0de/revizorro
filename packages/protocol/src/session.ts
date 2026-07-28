@@ -2,6 +2,11 @@ import { z } from "zod";
 import { FileRange, Side } from "./range.js";
 
 export const FileViewState = z.object({ viewed: z.boolean(), contentHash: z.string() });
+/** What a round is reviewing: the staged change, or the branch against a target. */
+export const ReviewScope = z.object({
+  stagedOnly: z.boolean().default(false),
+  baseRef: z.string().default(""),
+});
 export const ThreadMessage = z.object({ author: z.enum(["human", "agent"]), body: z.string() });
 export const Thread = z.object({
   id: z.string(),
@@ -25,7 +30,10 @@ export const SessionState = z.object({
   verdictDelivered: z.boolean().default(false),
   /** When an undelivered verdict started waiting (ms epoch) — replay expires. */
   verdictPendingSince: z.number().optional(),
+  /** The scope this round was opened with; a different one is a different review. */
+  scope: ReviewScope.default({ stagedOnly: false, baseRef: "" }),
 });
 export type SessionState = z.infer<typeof SessionState>;
+export type ReviewScope = z.infer<typeof ReviewScope>;
 export type Thread = z.infer<typeof Thread>;
 export type FileViewState = z.infer<typeof FileViewState>;
