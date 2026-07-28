@@ -14,7 +14,14 @@ import rust from "highlight.js/lib/languages/rust";
 import java from "highlight.js/lib/languages/java";
 import sql from "highlight.js/lib/languages/sql";
 import MarkdownIt from "markdown-it";
-import { buildFileTree, fileReviewState, type FileTreeNode } from "@revizorro/core";
+import {
+  buildFileTree,
+  fileReviewState,
+  composeDraftKey,
+  replyDraftKey,
+  editDraftKey,
+  type FileTreeNode,
+} from "@revizorro/core";
 
 hljs.registerLanguage("typescript", typescript);
 hljs.registerLanguage("javascript", javascript);
@@ -76,9 +83,48 @@ const expandedGaps = new Map<string, number>();
 
 let state: Msg | null = null;
 let sel: { file: string; start: number; end: number } | null = null;
-// Per-range comment drafts — survive closing/cancelling the composer and re-renders,
-// so re-opening the same line restores what you'd typed. Cleared on submit.
+// Unsent text — composer, thread replies, message edits — kept outside the DOM.
+// Every agent push re-renders the form from scratch, and without this whatever the
+// human was typing at that moment is gone. Cleared on submit.
 const drafts = new Map<string, string>();
+// Message editors the human had open, so a re-render reopens them instead of
+// collapsing back to the rendered comment mid-edit.
+const openEditors = new Set<string>();
+
+/**
+ * Keep typing alive across a re-render: remember which textarea had focus and where
+ * the caret sat, then put both back once the new DOM is in place.
+ */
+function focusSnapshot(): { key: string; start: number; end: number } | null {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLTextAreaElement) || !active.dataset.draftKey) return null;
+  return {
+    key: active.dataset.draftKey,
+    start: active.selectionStart ?? 0,
+    end: active.selectionEnd ?? 0,
+  };
+}
+
+function restoreFocus(snap: { key: string; start: number; end: number } | null): void {
+  if (!snap) return;
+  const target = document.querySelector<HTMLTextAreaElement>(
+    `textarea[data-draft-key="${CSS.escape(snap.key)}"]`,
+  );
+  if (!target) return;
+  target.focus();
+  target.setSelectionRange(snap.start, snap.end);
+}
+
+/** Wire a textarea to its draft: restore what was typed, and record every keystroke. */
+function bindDraft(ta: HTMLTextAreaElement, draftKey: string): void {
+  ta.dataset.draftKey = draftKey;
+  const saved = drafts.get(draftKey);
+  if (saved !== undefined) ta.value = saved;
+  ta.addEventListener("input", () => {
+    if (ta.value) drafts.set(draftKey, ta.value);
+    else drafts.delete(draftKey);
+  });
+}
 // The composer currently open, if any. An incoming agent reply re-renders the
 // whole form; this lets render() reopen the composer (with its draft) instead of
 // silently dropping what the human was typing.
@@ -440,13 +486,19 @@ function renderThread(t: FileView["threads"][number]): HTMLElement {
     const head = el("div", "msg-head");
     head.append(avatar(m.author), el("span", "who", m.author === "agent" ? "revizorro" : "you"));
     const bodyEl = renderBody(m.body);
+    const editKey = editDraftKey(t.id, i);
     const startEdit = () => {
       if (msg.querySelector(".msg-edit")) return;
+      openEditors.add(editKey);
       const editor = el("div", "msg-edit");
       const ta = document.createElement("textarea");
       ta.className = "edit-ta";
       ta.value = m.body;
+      // A draft only exists if this edit was interrupted by a re-render.
+      bindDraft(ta, editKey);
       const restore = () => {
+        openEditors.delete(editKey);
+        drafts.delete(editKey);
         editor.replaceWith(bodyEl);
       };
       const saveFn = () => {
@@ -478,6 +530,9 @@ function renderThread(t: FileView["threads"][number]): HTMLElement {
     }
     msg.append(head, bodyEl);
     content.append(msg);
+    // This message was being edited when the form re-rendered — reopen the editor
+    // so the human keeps typing where they left off.
+    if (openEditors.has(editKey)) queueMicrotask(startEdit);
   });
 
   if (t.pending) {
@@ -491,15 +546,18 @@ function renderThread(t: FileView["threads"][number]): HTMLElement {
     const ta = document.createElement("textarea");
     ta.rows = 1;
     ta.placeholder = "Reply…  (⌘/Ctrl+Enter reply · ⌥+Enter ask · ↑ edit last)";
-    const replyFn = () => {
+    bindDraft(ta, replyDraftKey(t.id));
+    const send = (type: "reply" | "askReply") => {
       const v = ta.value.trim();
-      if (v) vscode.postMessage({ type: "reply", threadId: t.id, body: v });
+      if (v) vscode.postMessage({ type, threadId: t.id, body: v });
       ta.value = "";
+      drafts.delete(replyDraftKey(t.id));
+    };
+    const replyFn = () => {
+      send("reply");
     };
     const askFn = () => {
-      const v = ta.value.trim();
-      if (v) vscode.postMessage({ type: "askReply", threadId: t.id, body: v });
-      ta.value = "";
+      send("askReply");
     };
     const reply = el("button", undefined, "Reply");
     const ask = el("button", "primary", "Ask agent");
@@ -544,11 +602,8 @@ function openCompose(
   ta.rows = 2;
   const where = startLine === endLine ? `line ${startLine}` : `lines ${startLine}–${endLine}`;
   ta.placeholder = `Comment on ${where}…  (⌘/Ctrl+Enter comment · ⌘/Ctrl+Alt+Enter ask · Esc cancel)`;
-  const draftKey = `${file}:${startLine}:${endLine}`;
-  ta.value = drafts.get(draftKey) ?? "";
-  ta.addEventListener("input", () => {
-    drafts.set(draftKey, ta.value);
-  });
+  const draftKey = composeDraftKey(file, side, startLine, endLine);
+  bindDraft(ta, draftKey);
   // Carry the selected code into the comment so the agent sees the exact piece.
   const withSnippet = (v: string) => (snippet ? `\`\`\`\n${snippet}\n\`\`\`\n\n${v}` : v);
   const close = () => {
@@ -950,6 +1005,9 @@ function renderSummary(files: FileView[]): void {
 
 function render(): void {
   if (!state) return;
+  // An agent push rebuilds the form under the human's hands; keep the caret where
+  // it was so an arriving reply does not interrupt a sentence.
+  const focus = focusSnapshot();
   const round = document.getElementById("round");
   if (round) round.textContent = `round ${state.round} · ${state.status}`;
   renderSummary(state.files);
@@ -970,6 +1028,7 @@ function render(): void {
   renderTree(state.files);
   if (!state.files.length) {
     root.append(el("div", "empty", "no changes in the worktree"));
+    restoreFocus(focus);
     return;
   }
   for (const f of state.files) root.append(renderFile(f, state.viewMode || "inline"));
@@ -982,6 +1041,10 @@ function render(): void {
       document.querySelector(`[data-file="${CSS.escape(file)}"][data-line="${endLine}"]`);
     if (anchor instanceof HTMLElement) openCompose(anchor, file, startLine, endLine, side, snippet);
   }
+  // Editors reopen in a microtask, so put the caret back after they exist.
+  queueMicrotask(() => {
+    restoreFocus(focus);
+  });
 }
 
 function bindButton(id: string, msgType: string): void {
