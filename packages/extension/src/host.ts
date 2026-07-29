@@ -357,20 +357,15 @@ export class ReviewHost {
     if (ask) this.pending.add(threadId);
     await c.store.save(next);
     this.onStateRendered(next, c.lastDiff);
+    // Only "Ask agent" asks for the agent's attention. A passive comment is a note
+    // the human leaves mid-read: it is already saved, and it reaches the agent
+    // inside the verdict. Waking the loop for it would send the agent off fixing
+    // half a review before the human has decided anything.
     // Held when the agent is between calls (off writing the previous answer):
     // a question the human asked must never be silently dropped.
-    this.events.emit(
-      c.worktreeId,
-      {
-        type: ask ? "question" : "comment",
-        threadId,
-        file,
-        side,
-        range,
-        body,
-      },
-      true,
-    );
+    if (ask) {
+      this.events.emit(c.worktreeId, { type: "question", threadId, file, side, range, body }, true);
+    }
   }
 
   /** Human replies inside an existing thread. `ask=true` wakes the agent now. */
@@ -390,20 +385,22 @@ export class ReviewHost {
     if (ask) this.pending.add(threadId);
     await c.store.save(next);
     this.onStateRendered(next, c.lastDiff);
-    // Held when the agent is between calls (off writing the previous answer):
-    // a question the human asked must never be silently dropped.
-    this.events.emit(
-      c.worktreeId,
-      {
-        type: ask ? "question" : "comment",
-        threadId,
-        file: thread.file,
-        side: thread.side,
-        range: thread.range,
-        body,
-      },
-      true,
-    );
+    // Same rule as a new thread: only Ask agent wakes the loop. A plain reply is
+    // recorded and travels with the verdict.
+    if (ask) {
+      this.events.emit(
+        c.worktreeId,
+        {
+          type: "question",
+          threadId,
+          file: thread.file,
+          side: thread.side,
+          range: thread.range,
+          body,
+        },
+        true,
+      );
+    }
   }
 
   /** Edit one of the human's own messages in a thread; persist and re-render. */
