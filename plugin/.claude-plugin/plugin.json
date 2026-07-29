@@ -1,5 +1,5 @@
 {
   "name": "revizorro",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Pre-merge AI code review — drive a GitHub-PR-style review of the worktree diff in VS Code (inline comments, threads, Ask-agent, approve/decline) and apply fixes until approved. No GitHub required."
 }

@@ -129,14 +129,24 @@ windows are skipped and cleaned up automatically.
      revizorro review
      ```
 
+     **Questions you asked that came back unanswered do not become permission to
+     guess.** Fix what is unambiguous; for the rest, reply in the thread saying
+     exactly what is still undecided and what you would do by default, and leave
+     the code alone. A wrong fix costs the human more than an unanswered question.
+
      Unchanged files the human already marked viewed will be collapsed. Loop back
      to step 2.
 
-   - **`decision` / `clarify`** `{ comments: [...] }` — the human wants answers,
-     NOT code changes. Answer EVERY comment in the list, writing all the replies
-     into ONE push file rather than pushing them one at a time. Do not edit code.
-     The form stays open and marks each unanswered thread, clearing as your
-     replies land.
+   - **`decision` / `clarify`** `{ comments: [...] }` — a conversation, NOT a work
+     order. Do not edit a single line of code here, however obvious the fix looks.
+
+     Answer EVERY comment in the list, and where a request is ambiguous, **ask
+     back**: name the options you see and say which you would pick. Silently
+     guessing what the human meant is the failure this event exists to prevent.
+     Put all the replies and questions into ONE push file rather than pushing them
+     one at a time. The form stays open and marks each unanswered thread, clearing
+     as your replies land.
+
      After answering all, re-enter with `revizorro review` to wait for the human's
      next decision. Loop back to step 2.
 
@@ -198,7 +208,9 @@ Write every answer first, then push once.
   to start fixing — the human is still reviewing, and the fixes they want arrive
   as `changes_requested`.
 - Do NOT merge on `changes_requested`. Fix, re-submit, and wait for `approved`.
-- On `clarify`, only answer — never edit code.
+- On `clarify`, only answer and ask back — never edit code. Unanswered questions
+  are not permission to guess: on the next `changes_requested`, fix what is
+  unambiguous and say in the thread what is still undecided.
 - On `approved`, the review gate has passed — you may merge the worktree.
 - On `closed`, the human interrupted the review — ask them to choose between
   re-running the review, committing as is, and chatting about it (in their own
