@@ -5,6 +5,7 @@ import {
   changeTotals,
   reviewProgress,
   renderSummary,
+  renderBranch,
   renderAgentStatus,
   type SummaryFile,
 } from "../media/view/summary.js";
@@ -144,5 +145,24 @@ describe("renderSummary", () => {
     expect(() => {
       renderSummary([file()], undefined);
     }).not.toThrow();
+  });
+
+  it("shows the branch under review", () => {
+    document.body.innerHTML = '<span id="branch"></span>';
+    renderBranch("feature/idle-semantics");
+    const node = document.getElementById("branch")!;
+    expect(node.textContent).toContain("feature/idle-semantics");
+    expect(node.style.display).not.toBe("none");
+  });
+
+  it("hides the branch label when the branch is unknown", () => {
+    document.body.innerHTML = '<span id="branch"></span>';
+    renderBranch("");
+    expect(document.getElementById("branch")?.style.display).toBe("none");
+  });
+
+  it("survives a toolbar with no branch element", () => {
+    document.body.innerHTML = "";
+    expect(() => renderBranch("main")).not.toThrow();
   });
 });

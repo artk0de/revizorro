@@ -103,6 +103,12 @@ export class ReviewHost {
     };
   }
 
+  /** Branch under review, for the form's toolbar. Empty until a round has opened. */
+  private branchName = "";
+  branch(): string {
+    return this.branchName;
+  }
+
   /** Whether an agent is blocked on the active review right now. */
   isAgentWaiting(): boolean {
     return this.current ? this.events.isWaiting(this.current.worktreeId) : false;
@@ -139,7 +145,11 @@ export class ReviewHost {
       ...(opts.stagedOnly === undefined ? {} : { stagedOnly: opts.stagedOnly }),
       ...(opts.baseRef === undefined ? {} : { baseRef: opts.baseRef }),
     });
-    await run(this.ctx(repoRoot, worktreeId, scope));
+    const c = this.ctx(repoRoot, worktreeId, scope);
+    // Re-read per call: the human can switch branches between rounds, and a toolbar
+    // still naming the previous one is worse than naming none.
+    this.branchName = await c.diff.branch();
+    await run(c);
   }
 
   /** Get (or build) the session context for a repoRoot, making it the active review. */

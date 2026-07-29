@@ -9,7 +9,7 @@ import {
 } from "./view/patch.js";
 import { setBridge, send } from "./view/bridge.js";
 import { trackActivity } from "./view/activity.js";
-import { renderSummary, renderAgentStatus } from "./view/summary.js";
+import { renderSummary, renderBranch, renderAgentStatus } from "./view/summary.js";
 import {
   renderTree,
   setTreeVisible,
@@ -42,6 +42,7 @@ interface Msg {
   round: number;
   status: string;
   scope?: { stagedOnly: boolean; baseRef: string };
+  branch?: string;
   agentWaiting?: boolean;
   viewMode?: string;
   files: FileView[];
@@ -554,6 +555,7 @@ function render(): void {
   const round = document.getElementById("round");
   if (round) round.textContent = `round ${state.round} · ${state.status}`;
   renderSummary(state.files, state.scope);
+  renderBranch(state.branch ?? "");
 
   const toggle = document.getElementById("toggle");
   if (toggle) {

@@ -55,6 +55,17 @@ export class GitDiffProvider implements DiffProvider {
     return "main";
   }
 
+  /**
+   * The branch under review, for the form to show. A detached HEAD has no name, so
+   * fall back to the short sha rather than printing the literal "HEAD" — with a few
+   * worktrees open, the label is how you tell which diff you are looking at.
+   */
+  async branch(): Promise<string> {
+    const name = (await this.gitAllowFail("rev-parse", "--abbrev-ref", "HEAD")).trim();
+    if (name && name !== "HEAD") return name;
+    return (await this.gitAllowFail("rev-parse", "--short", "HEAD")).trim();
+  }
+
   private async git(...args: string[]): Promise<string> {
     const { stdout } = await exec("git", args, {
       cwd: this.repoRoot,

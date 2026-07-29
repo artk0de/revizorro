@@ -64,6 +64,11 @@ describe("what wakes a blocked agent", () => {
     expect(await settle(poll, 400)).toBe("pending");
   });
 
+  it("knows the branch under review once a round is open", async () => {
+    await openRound();
+    expect(host.branch()).toBe("feature");
+  });
+
   it("wakes the agent when the human uses Ask agent", async () => {
     const { poll } = await openRound();
     await host.addHumanComment("a.ts", { startLine: 1, endLine: 1 }, "why this?", true);

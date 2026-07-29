@@ -33,6 +33,15 @@
         opacity: 0.85;
         white-space: nowrap;
       }
+      .branch {
+        font-size: 0.78em;
+        font-family: var(--vscode-editor-font-family, monospace);
+        opacity: 0.7;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 24ch;
+      }
       .stats { font-size: 0.82em; opacity: 0.85; white-space: nowrap; }
       .stats .add, .tree .node .add { color: var(--vscode-testing-iconPassed); }
       .stats .del, .tree .node .del { color: var(--vscode-testing-iconFailed); }
@@ -562,6 +571,8 @@
       </span>
       <span class="agent" id="agent" title="whether an agent is waiting for your verdict"></span>
       <button id="toggle" class="tipbtn tip-left" data-tip="Toggle inline / side-by-side diff">⇆ split/inline</button>
+      <span class="grow"></span>
+      <span class="branch" id="branch" title="branch under review"></span>
       <span class="grow"></span>
       <button class="act approve tipbtn" id="approve" data-tip="Approve — the change passes the gate, ready to merge">✓ Approve</button>
       <button class="act changes tipbtn" id="requestChanges" data-tip="Request changes — the agent fixes every comment and re-submits a new round">✗ Request changes</button>

@@ -52,6 +52,17 @@ export function reviewProgress(files: SummaryFile[]): { done: number; total: num
  * the CLI call that opened it: once nothing is listening, approving changes nothing
  * and the form looks broken — say so instead.
  */
+/**
+ * Name the branch being reviewed, in the toolbar's spare space. Hidden when the
+ * branch is unknown, so the label never sits there empty.
+ */
+export function renderBranch(branch: string): void {
+  const node = document.getElementById("branch");
+  if (!node) return;
+  node.textContent = branch ? `⑂ ${branch}` : "";
+  node.style.display = branch ? "" : "none";
+}
+
 export function renderAgentStatus(waiting: boolean | undefined, answering: number): void {
   const box = document.getElementById("agent");
   if (!box) return;

@@ -164,4 +164,16 @@ describe("GitDiffProvider", () => {
     const files = await new GitDiffProvider(mrepo).diff("wt");
     expect(files.map((f) => f.path)).toContain("a.ts");
   });
+
+  // The form shows what you are reviewing; without the branch name a reviewer with
+  // several worktrees open has to guess which one the diff came from.
+  it("reports the checked-out branch", async () => {
+    expect(await new GitDiffProvider(repo, "main").branch()).toBe("feature");
+  });
+
+  it("falls back to a short sha when HEAD is detached", async () => {
+    const sha = git(repo, "rev-parse", "--short", "HEAD").trim();
+    git(repo, "checkout", "-q", "--detach");
+    expect(await new GitDiffProvider(repo, "main").branch()).toBe(sha);
+  });
 });
