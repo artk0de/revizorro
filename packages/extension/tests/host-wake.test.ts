@@ -25,7 +25,7 @@ let host: ReviewHost;
  */
 // Returns the poll wrapped in an object on purpose: handing back the bare promise
 // would let async/await flatten it, so the caller would sit on the long poll itself.
-const openRound = async (): Promise<{ poll: Promise<unknown> }> => {
+const openRound = async (): Promise<{ poll: Promise<unknown>; port: number }> => {
   let formIsUp: () => void = () => undefined;
   const opened = new Promise<void>((r) => (formIsUp = r));
   host = new ReviewHost(
@@ -35,7 +35,7 @@ const openRound = async (): Promise<{ poll: Promise<unknown> }> => {
   const port = await host.start();
   const poll = new HttpReviewClient(port).review("wt1", repo);
   await opened;
-  return { poll };
+  return { poll, port };
 };
 
 beforeEach(() => {
@@ -52,6 +52,9 @@ beforeEach(() => {
 
 afterEach(async () => {
   await host?.stop();
+  // Set by the decided-round test; left behind it would silently shorten the poll
+  // for every test that runs after it.
+  delete process.env.REVIZORRO_POLL_TIMEOUT_MS;
 });
 
 // Only "Ask agent" is a request for the agent's attention. A passive comment is a
@@ -67,6 +70,24 @@ describe("what wakes a blocked agent", () => {
   it("knows the branch under review once a round is open", async () => {
     await openRound();
     expect(host.branch()).toBe("feature");
+  });
+
+  // The skill tells the agent to push its fix replies right after a verdict. That
+  // push lands on a round that is already decided and whose panel is gone, so
+  // without an answer here the agent parks on the poll for the full ceiling —
+  // exactly at the moment it has work to get on with.
+  it("answers a push that lands on an already-decided round", async () => {
+    process.env.REVIZORRO_POLL_TIMEOUT_MS = "4000";
+    const { poll, port } = await openRound();
+    await host.requestChanges();
+    await poll;
+    const started = Date.now();
+    const event = await new HttpReviewClient(port).review("wt1", repo, {
+      replies: [{ threadId: "t1", body: "fixed it" }],
+      comments: [],
+    });
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(event).toMatchObject({ type: expect.any(String) });
   });
 
   it("wakes the agent when the human uses Ask agent", async () => {

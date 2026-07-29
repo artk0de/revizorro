@@ -292,8 +292,17 @@ export class ReviewHost {
     // An agent push during an OPEN review must (re)show the form — the human may
     // have closed or reloaded the window (e.g. mid-Clarify). A decided session
     // (approved/changes_requested) stays closed: onState only re-renders if open.
-    if (next.status === "open") this.onFormOpened(next, c.lastDiff);
-    else this.onStateRendered(next, c.lastDiff);
+    if (next.status === "open") {
+      this.onFormOpened(next, c.lastDiff);
+      return;
+    }
+    // The round is already decided and its form is gone — this is the agent pushing
+    // the replies that document its fixes, exactly as the loop prescribes. Nothing
+    // downstream will ever produce an event for it, so answer now: without this the
+    // call parks on the poll for the whole ceiling at the moment the agent has work
+    // to get on with.
+    this.onStateRendered(next, c.lastDiff);
+    this.events.emit(c.worktreeId, { type: "idle" });
   }
 
   async approve(): Promise<void> {
