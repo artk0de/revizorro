@@ -57,6 +57,47 @@ afterEach(async () => {
   delete process.env.REVIZORRO_POLL_TIMEOUT_MS;
 });
 
+// A review belongs to the branch it is reviewing. Carrying the round number,
+// the threads and the viewed marks across a checkout shows the human comments
+// about code that is no longer in the diff, and calls a first look "round 6".
+describe("a session belongs to its branch", () => {
+  it("starts a new branch at round 1 with none of the old branch's threads", async () => {
+    process.env.REVIZORRO_POLL_TIMEOUT_MS = "500";
+    // Record WHICH callback fired: a replayed verdict renders, it does not open a
+    // round, and asserting only on the numbers would pass on that replay.
+    const seen: { how: string; round: number; status: string; threads: unknown[] }[] = [];
+    const capture =
+      (how: string) =>
+      (s: { round: number; status: string; threads: unknown[] }): void => {
+        seen.push({ how, round: s.round, status: s.status, threads: s.threads });
+      };
+    host = new ReviewHost(capture("render"), capture("open"));
+    const port = await host.start();
+    const client = new HttpReviewClient(port);
+
+    await client.review("wt1", repo);
+    await host.addHumanComment("a.ts", { startLine: 1, endLine: 1 }, "note on the old branch", false);
+    await host.requestChanges();
+
+    git(repo, "checkout", "-qb", "other");
+    writeFileSync(join(repo, "a.ts"), "export const a = 3;\n");
+    seen.length = 0;
+    await client.review("wt1", repo);
+    // The poll answers on its own timer; opening the round runs a git diff and can
+    // finish after it. Wait for the form, or the assertion races the work.
+    for (let i = 0; i < 60 && !seen.some((e) => e.how === "open"); i++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    const opened = seen.filter((e) => e.how === "open");
+    expect(opened).toHaveLength(1);
+    expect(opened[0]).toMatchObject({ round: 1, status: "open" });
+    expect(opened[0].threads).toEqual([]);
+    // Nothing from the old branch may be replayed into the new one.
+    expect(seen.some((e) => e.status === "changes_requested")).toBe(false);
+  });
+});
+
 // Only "Ask agent" is a request for the agent's attention. A passive comment is a
 // note the human leaves while reading; waking the agent for it sends it off acting
 // on half a review, before the human has decided anything.

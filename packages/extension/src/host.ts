@@ -29,6 +29,8 @@ interface ReviewCtx {
   worktreeId: string;
   /** The CLI asked to review the index only — unstaged edits stay out of the diff. */
   stagedOnly: boolean;
+  /** Branch under review. Part of the session key, so a checkout starts fresh. */
+  branch: string;
   /** Target branch the CLI asked to review against ("" = auto-detect). */
   baseRef: string;
   store: FsSessionStore;
@@ -69,7 +71,10 @@ export class ReviewHost {
       const c = this.current;
       if (c?.worktreeId !== wt) return;
       void c.store.load(wt).then((s) => {
-        if (s) this.onStateRendered(s, c.lastDiff);
+        // Only a live round is worth repainting. A decided or abandoned one is not
+        // on screen, and this fires on the first packet of the NEXT call — which,
+        // after a checkout, would flash the previous branch's finished review.
+        if (s?.status === "open" && !s.interrupted) this.onStateRendered(s, c.lastDiff);
       });
     });
   }
@@ -140,16 +145,15 @@ export class ReviewHost {
     opts: ReviewOptions,
     run: (c: ReviewCtx) => Promise<void>,
   ): Promise<void> {
-    const open = await new FsSessionStore(repoRoot).load(worktreeId);
+    // Read the branch first: it keys the session, so loading before we know it would
+    // look in the previous branch's drawer.
+    this.branchName = await new GitDiffProvider(repoRoot).branch();
+    const open = await new FsSessionStore(repoRoot, this.branchName).load(worktreeId);
     const scope = resolveScope(open, {
       ...(opts.stagedOnly === undefined ? {} : { stagedOnly: opts.stagedOnly }),
       ...(opts.baseRef === undefined ? {} : { baseRef: opts.baseRef }),
     });
-    const c = this.ctx(repoRoot, worktreeId, scope);
-    // Re-read per call: the human can switch branches between rounds, and a toolbar
-    // still naming the previous one is worse than naming none.
-    this.branchName = await c.diff.branch();
-    await run(c);
+    await run(this.ctx(repoRoot, worktreeId, scope));
   }
 
   /** Get (or build) the session context for a repoRoot, making it the active review. */
@@ -160,14 +164,16 @@ export class ReviewHost {
     if (
       this.current?.repoRoot !== repoRoot ||
       this.current.stagedOnly !== stagedOnly ||
-      this.current.baseRef !== baseRef
+      this.current.baseRef !== baseRef ||
+      this.current.branch !== this.branchName
     ) {
       this.current = {
         repoRoot,
         worktreeId,
         stagedOnly,
         baseRef,
-        store: new FsSessionStore(repoRoot),
+        branch: this.branchName,
+        store: new FsSessionStore(repoRoot, this.branchName),
         diff: new GitDiffProvider(repoRoot, baseRef || undefined, { stagedOnly }),
         lastDiff: [],
       };

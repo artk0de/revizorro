@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import { join, dirname } from "node:path";
+import { createHash } from "node:crypto";
 import { SessionState } from "@revizorro/protocol";
 import type { SessionStore } from "@revizorro/core";
 
@@ -7,10 +8,25 @@ export class FsSessionStore implements SessionStore {
   /** Distinguishes concurrent writes within this process. */
   private static writes = 0;
 
-  constructor(private readonly repoRoot: string) {}
+  /**
+   * A review belongs to the branch it reviews, so the branch is part of the key.
+   * Sharing one file across branches carries the round number, the threads and the
+   * viewed marks through a checkout — and lets a verdict decided on one branch be
+   * replayed into the review of another.
+   */
+  constructor(
+    private readonly repoRoot: string,
+    private readonly branch = "",
+  ) {}
+
+  /** Hashed, because branch names carry slashes and would nest directories. */
+  private branchKey(): string {
+    if (!this.branch) return "_";
+    return createHash("sha1").update(this.branch).digest("hex").slice(0, 12);
+  }
 
   private path(worktreeId: string): string {
-    return join(this.repoRoot, ".claude", "revizorro", worktreeId, "session.json");
+    return join(this.repoRoot, ".claude", "revizorro", worktreeId, this.branchKey(), "session.json");
   }
 
   async load(worktreeId: string): Promise<SessionState | null> {
