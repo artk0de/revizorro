@@ -78,9 +78,11 @@ windows are skipped and cleaned up automatically.
 
      Then loop back to step 2 with the next event.
 
-   - **`comment`** `{ threadId, file, side, range, body }` — a passive comment. Note it,
-     but do NOT edit code yet. You may reply via `--push` if a clarification
-     helps. Fixes are applied later, on `changes_requested`. Loop back to step 2.
+   - **`comment`** `{ threadId, file, side, range, body }` — a passive comment. You
+     will not normally see one: comments the human leaves while reading no longer
+     wake you, and reach you inside the verdict instead. If one does arrive (an
+     older host), it is READ-ONLY — do NOT edit code and do NOT reply. Loop back to
+     step 2.
 
    - **`idle`** — the poll hit its ceiling. This is the normal heartbeat of a
      review, not a fault. Re-arm:
@@ -190,6 +192,11 @@ Write every answer first, then push once.
 
 - One event per call. Always re-enter the loop after acting — never assume the
   form closed.
+- **Only Ask agent is reactive.** `question` is the ONLY event you answer on your
+  own initiative. Every other action of yours waits for a decision: `approved`,
+  `changes_requested` or `clarify`. Comments piling up in the form are not a cue
+  to start fixing — the human is still reviewing, and the fixes they want arrive
+  as `changes_requested`.
 - Do NOT merge on `changes_requested`. Fix, re-submit, and wait for `approved`.
 - On `clarify`, only answer — never edit code.
 - On `approved`, the review gate has passed — you may merge the worktree.
