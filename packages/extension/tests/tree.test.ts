@@ -5,6 +5,7 @@ import {
   revealFile,
   fileMarker,
   setTreeVisible,
+  bindTreeHotkey,
   isTreeVisible,
   applyTreeWidth,
   resetTree,
@@ -146,5 +147,40 @@ describe("sidebar chrome", () => {
   it("publishes the width as a custom property", () => {
     applyTreeWidth();
     expect(document.getElementById("main")?.style.getPropertyValue("--tree-w")).toBe("17rem");
+  });
+});
+
+// The tree eats horizontal room on a wide diff, so it gets toggled constantly.
+// Reaching for the mouse each time is the friction the hotkey removes.
+describe("tree hotkey", () => {
+  beforeEach(() => {
+    document.body.innerHTML = `<div id="main"></div><button id="treeToggle"></button><textarea id="ta"></textarea>`;
+    bindTreeHotkey();
+    setTreeVisible(true);
+  });
+
+  it("toggles the tree", () => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "t", bubbles: true }));
+    expect(isTreeVisible()).toBe(false);
+  });
+
+  it("stays out of the way while the human is typing", () => {
+    document
+      .getElementById("ta")!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "t", bubbles: true }));
+    expect(isTreeVisible()).toBe(true);
+  });
+
+  it("ignores the key when a modifier is held, leaving editor shortcuts alone", () => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "t", ctrlKey: true, bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "t", metaKey: true, bubbles: true }));
+    expect(isTreeVisible()).toBe(true);
+  });
+
+  it("binds once however often it is called", () => {
+    bindTreeHotkey();
+    bindTreeHotkey();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "t", bubbles: true }));
+    expect(isTreeVisible()).toBe(false);
   });
 });

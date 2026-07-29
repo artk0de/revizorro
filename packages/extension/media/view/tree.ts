@@ -146,6 +146,27 @@ export function setTreeVisible(visible: boolean): void {
   document.getElementById("treeToggle")?.classList.toggle("on", visible);
 }
 
+let hotkeyBound = false;
+
+/**
+ * `t` folds the navigator away. No modifier, so it cannot collide with an editor
+ * shortcut, and inert while the caret sits in a field — otherwise typing "t" into
+ * a comment would make the sidebar jump.
+ */
+export function bindTreeHotkey(): void {
+  if (hotkeyBound) return;
+  hotkeyBound = true;
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "t" && e.key !== "T") return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
+    if (target?.isContentEditable) return;
+    e.preventDefault();
+    setTreeVisible(!treeVisible);
+  });
+}
+
 export function applyTreeWidth(): void {
   document.getElementById("main")?.style.setProperty("--tree-w", `${treeWidth}rem`);
 }

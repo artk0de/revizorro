@@ -23,7 +23,7 @@
         z-index: 10;
       }
       .toolbar .grow { flex: 1; }
-      .round { opacity: 0.7; font-size: 0.85em; }
+      .round { opacity: 0.85; font-size: 0.85em; font-weight: 600; }
       /* what is being reviewed, how big it is, how far the human has got */
       .scope {
         font-size: 0.78em;
@@ -34,14 +34,27 @@
         white-space: nowrap;
       }
       .branch {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3em;
         font-size: 0.78em;
         font-family: var(--vscode-editor-font-family, monospace);
-        opacity: 0.7;
+        opacity: 0.75;
         white-space: nowrap;
+        cursor: pointer;
+        padding: 0.1em 0.4em;
+        border-radius: 4px;
+      }
+      .branch:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
+      .branch .branch-name {
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: 24ch;
+        max-width: 22ch;
       }
+      /* The copy glyph stays out of the way until you go for it. */
+      .branch .branch-copy { opacity: 0; transition: opacity 0.12s; }
+      .branch:hover .branch-copy, .branch.copied .branch-copy { opacity: 0.9; }
+      .branch.copied { color: var(--vscode-testing-iconPassed); opacity: 1; }
       .stats { font-size: 0.82em; opacity: 0.85; white-space: nowrap; }
       .stats .add, .tree .node .add { color: var(--vscode-testing-iconPassed); }
       .stats .del, .tree .node .del { color: var(--vscode-testing-iconFailed); }
@@ -561,7 +574,8 @@
   </head>
   <body>
     <div class="toolbar">
-      <button id="treeToggle" class="tipbtn tip-left" data-tip="Show / hide the file tree">🗂</button>
+      <button id="treeToggle" class="tipbtn tip-left" data-tip="Show / hide the file tree (t)">🗂</button>
+      <span class="branch" id="branch"></span>
       <span class="round" id="round"></span>
       <span class="scope" id="scope"></span>
       <span class="stats" id="stats"></span>
@@ -571,8 +585,6 @@
       </span>
       <span class="agent" id="agent" title="whether an agent is waiting for your verdict"></span>
       <button id="toggle" class="tipbtn tip-left" data-tip="Toggle inline / side-by-side diff">⇆ split/inline</button>
-      <span class="grow"></span>
-      <span class="branch" id="branch" title="branch under review"></span>
       <span class="grow"></span>
       <button class="act approve tipbtn" id="approve" data-tip="Approve — the change passes the gate, ready to merge">✓ Approve</button>
       <button class="act changes tipbtn" id="requestChanges" data-tip="Request changes — the agent fixes every comment and re-submits a new round">✗ Request changes</button>

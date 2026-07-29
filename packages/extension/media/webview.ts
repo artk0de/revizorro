@@ -16,6 +16,7 @@ import {
   isTreeVisible,
   applyTreeWidth,
   bindTreeResizer,
+  bindTreeHotkey,
 } from "./view/tree.js";
 import {
   bindDraft,
@@ -626,6 +627,7 @@ if (treeToggle) {
   };
 }
 setTreeVisible(isTreeVisible());
+bindTreeHotkey();
 applyTreeWidth();
 bindTreeResizer();
 

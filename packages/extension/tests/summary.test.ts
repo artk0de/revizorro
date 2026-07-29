@@ -9,6 +9,7 @@ import {
   renderAgentStatus,
   type SummaryFile,
 } from "../media/view/summary.js";
+import { setBridge } from "../media/view/bridge.js";
 
 const file = (over: Partial<SummaryFile> = {}): SummaryFile => ({
   patch: "@@ -1,1 +1,2 @@\n ctx\n+added\n-removed\n",
@@ -153,6 +154,40 @@ describe("renderSummary", () => {
     const node = document.getElementById("branch")!;
     expect(node.textContent).toContain("feature/idle-semantics");
     expect(node.style.display).not.toBe("none");
+  });
+
+  // The label is ellipsised to keep the toolbar from wrapping, so the full name
+  // has to live somewhere reachable — otherwise a long branch is unreadable.
+  it("keeps the whole branch name in the tooltip", () => {
+    document.body.innerHTML = '<span id="branch"></span>';
+    renderBranch("feat/TD-95551-tax-automation-rewrite");
+    expect(document.getElementById("branch")?.title).toContain(
+      "feat/TD-95551-tax-automation-rewrite",
+    );
+  });
+
+  it("offers a copy affordance", () => {
+    document.body.innerHTML = '<span id="branch"></span>';
+    renderBranch("main");
+    expect(document.querySelector("#branch .branch-copy")).not.toBeNull();
+  });
+
+  it("copies the branch through the host when clicked", () => {
+    const sent: unknown[] = [];
+    setBridge((m) => sent.push(m));
+    document.body.innerHTML = '<span id="branch"></span>';
+    renderBranch("feature/x");
+    (document.getElementById("branch") as HTMLElement).click();
+    expect(sent).toEqual([{ type: "copy", text: "feature/x" }]);
+  });
+
+  it("confirms on the label that the branch was copied", () => {
+    setBridge(() => undefined);
+    document.body.innerHTML = '<span id="branch"></span>';
+    renderBranch("feature/x");
+    const node = document.getElementById("branch")!;
+    node.click();
+    expect(node.classList.contains("copied")).toBe(true);
   });
 
   it("hides the branch label when the branch is unknown", () => {

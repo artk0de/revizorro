@@ -1,5 +1,6 @@
 import { fileReviewState } from "@revizorro/core";
 import { el } from "./dom.js";
+import { send } from "./bridge.js";
 import { diffStat } from "./patch.js";
 
 /** What the toolbar needs to know about one file. */
@@ -47,22 +48,43 @@ export function reviewProgress(files: SummaryFile[]): { done: number; total: num
   };
 }
 
+/** How long the copied confirmation stays on the branch label. */
+const COPIED_MS = 1200;
+
+/**
+ * Name the branch being reviewed, next to the navigator toggle. The visible name
+ * is ellipsised so the toolbar never wraps, so the whole thing goes in the
+ * tooltip; clicking copies it, because a branch name is something you paste into
+ * a terminal or a ticket, not something you retype.
+ */
+export function renderBranch(branch: string): void {
+  const node = document.getElementById("branch");
+  if (!node) return;
+  node.textContent = "";
+  node.style.display = branch ? "" : "none";
+  node.title = branch ? `${branch} — click to copy` : "";
+  if (!branch) return;
+  const name = el("span", "branch-name", branch);
+  const copy = el("span", "branch-copy", "⧉");
+  node.append(name, copy);
+  node.onclick = () => {
+    // The extension owns the clipboard: it has vscode.env.clipboard, which works
+    // whether or not the webview was granted clipboard permission.
+    send({ type: "copy", text: branch });
+    node.classList.add("copied");
+    copy.textContent = "✓";
+    setTimeout(() => {
+      node.classList.remove("copied");
+      copy.textContent = "⧉";
+    }, COPIED_MS);
+  };
+}
+
 /**
  * Show whether an agent is actually waiting for the verdict. A long review outlives
  * the CLI call that opened it: once nothing is listening, approving changes nothing
  * and the form looks broken — say so instead.
  */
-/**
- * Name the branch being reviewed, in the toolbar's spare space. Hidden when the
- * branch is unknown, so the label never sits there empty.
- */
-export function renderBranch(branch: string): void {
-  const node = document.getElementById("branch");
-  if (!node) return;
-  node.textContent = branch ? `⑂ ${branch}` : "";
-  node.style.display = branch ? "" : "none";
-}
-
 export function renderAgentStatus(waiting: boolean | undefined, answering: number): void {
   const box = document.getElementById("agent");
   if (!box) return;

@@ -96,9 +96,13 @@ export class ReviewForm {
         body?: string;
         threadId?: string;
         resolved?: boolean;
+        text?: string;
       }) => {
         if (m.type === "ready") {
           if (this.lastMessage) void this.panel?.webview.postMessage(this.lastMessage);
+        } else if (m.type === "copy" && m.text) {
+          // The webview cannot be relied on for clipboard access; the host can.
+          void vscode.env.clipboard.writeText(m.text);
         } else if (m.type === "activity") {
           // Reading and scrolling emit nothing else; this is what keeps the
           // host's inactivity clock honest about a reviewer who is still here.
