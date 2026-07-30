@@ -139,7 +139,7 @@ export function renderTree(files: TreeFile[]): void {
     del += d.del;
   }
   const totals = el("span", "tree-totals");
-  totals.append(el("span", "add", `+${add}`), document.createTextNode(" "), el("span", "del", `−${del}`));
+  totals.append(el("span", "add", `+${add}`), document.createTextNode("  "), el("span", "del", `-${del}`));
   head.append(totals);
   root.append(head);
   const byPath = new Map(files.map((f) => [f.path, f]));

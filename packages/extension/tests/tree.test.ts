@@ -66,6 +66,11 @@ describe("renderTree", () => {
     expect(first.querySelector(".del")?.textContent).toBe("−1");
   });
 
+  it("totals the change in the header, plain minus and two spaces apart", () => {
+    renderTree([file("a.ts"), file("b.ts")]);
+    expect(document.querySelector("#tree .tree-head .tree-totals")?.textContent).toBe("+2  -2");
+  });
+
   it("reports how many files are done when nothing is open", () => {
     renderTree([file("a.ts", { viewed: true }), file("b.ts")]);
     expect(document.querySelector("#tree .tree-head .done")?.textContent).toBe("1/2 done");
