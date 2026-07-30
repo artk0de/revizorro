@@ -70,7 +70,9 @@ export class ReviewForm {
       "revizorroReview",
       "revizorro review",
       vscode.ViewColumn.Active,
-      { enableScripts: true, retainContextWhenHidden: true },
+      // enableFindWidget gives the form VS Code's own Cmd/Ctrl+F over the rendered
+      // diff — searching a long review by eye is the alternative.
+      { enableScripts: true, retainContextWhenHidden: true, enableFindWidget: true },
     );
     const html = readFileSync(join(this.mediaDir, "review.html"), "utf8");
     const js = readFileSync(join(this.mediaDir, "webview.js"), "utf8").replace(
