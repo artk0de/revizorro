@@ -115,8 +115,11 @@ function renderBody(body: string): HTMLElement {
 
 function inlineBody(f: FileView, lines: Line[], lang: string | null): HTMLElement {
   const body = el("div");
-  const threadsByLine: Record<number, FileView["threads"]> = {};
-  for (const t of f.threads) (threadsByLine[t.line] ||= []).push(t);
+  // Keyed by side: a removed line and an added line can share a number, and putting
+  // both threads on whichever row came first anchors half of them to the wrong code.
+  const byNew: Record<number, FileView["threads"]> = {};
+  const byOld: Record<number, FileView["threads"]> = {};
+  for (const t of f.threads) ((t.side === "old" ? byOld : byNew)[t.line] ||= []).push(t);
   for (const l of lines) {
     if (l.kind === "expand") {
       body.append(expandRow(l));
@@ -128,14 +131,19 @@ function inlineBody(f: FileView, lines: Line[], lang: string | null): HTMLElemen
     }
     const row = el("div", `ln ${l.kind}`);
     const gut = el("span", "gut");
-    if (l.newNo !== undefined) {
-      const line = l.newNo;
+    // A removed line has no new-side number, but "why did this go?" is a question
+    // the review has to be able to ask — so it anchors to the old side instead.
+    const side: "old" | "new" = l.newNo !== undefined ? "new" : "old";
+    const anchor = l.newNo ?? l.oldNo;
+    if (anchor !== undefined) {
+      const line = anchor;
       gut.textContent = "💬";
-      gut.title = `comment on line ${line}`;
+      gut.title = `comment on ${side} line ${line}`;
       gut.classList.add("cm");
       gut.onclick = () => {
-        const sel = selectionFor(f.path, line);
-        openCompose(row, f.path, sel.start, sel.end, "new");
+        // Multi-line selection is a new-side affordance; a removed line comments alone.
+        const sel = side === "new" ? selectionFor(f.path, line) : { start: line, end: line };
+        openCompose(row, f.path, sel.start, sel.end, side);
         clearSelection();
       };
     }
@@ -155,7 +163,7 @@ function inlineBody(f: FileView, lines: Line[], lang: string | null): HTMLElemen
     if (l.newNo !== undefined) row.dataset.line = String(l.newNo);
     row.append(gut, no, codeSpan(l.text, lang));
     body.append(row);
-    const th = l.newNo !== undefined ? threadsByLine[l.newNo] : undefined;
+    const th = l.newNo !== undefined ? byNew[l.newNo] : l.oldNo !== undefined ? byOld[l.oldNo] : undefined;
     if (th) for (const t of th) body.append(renderThread(t));
   }
   return body;

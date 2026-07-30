@@ -56,6 +56,7 @@
       .branch:hover .branch-copy, .branch.copied .branch-copy { opacity: 0.9; }
       .branch.copied { color: var(--vscode-testing-iconPassed); opacity: 1; }
       .stats { font-size: 0.82em; opacity: 0.85; white-space: nowrap; }
+      .tree-head .tree-totals { margin-left: auto; font-size: 0.85em; opacity: 0.85; white-space: nowrap; }
       .stats .add, .tree .node .add { color: var(--vscode-testing-iconPassed); }
       .stats .del, .tree .node .del { color: var(--vscode-testing-iconFailed); }
       .progress { display: flex; align-items: center; gap: 0.4rem; }
@@ -578,7 +579,6 @@
       <span class="branch" id="branch"></span>
       <span class="round" id="round"></span>
       <span class="scope" id="scope"></span>
-      <span class="stats" id="stats"></span>
       <span class="progress" id="progress" style="display: none">
         <span class="progress-track"><span class="progress-bar" id="progressBar"></span></span>
         <span class="progress-label" id="progressLabel"></span>

@@ -114,4 +114,34 @@ describe("webview render", () => {
   it("posts a ready handshake on load", () => {
     expect(posted).toContainEqual({ type: "ready" });
   });
+
+  // A pure deletion has no new-side line to anchor to, so without a gutter on the
+  // removed line there is nowhere to say "why did this go?" — the review has no
+  // way to question a deletion at all.
+  it("lets you comment on a removed line", () => {
+    send([fileView("a.ts")]);
+    const removed = document.querySelector<HTMLElement>("#files .ln.del");
+    expect(removed).not.toBeNull();
+    expect(removed?.querySelector(".gut")?.textContent).toBe("💬");
+  });
+
+  it("anchors a thread left on a removed line to the old side", () => {
+    send([
+      fileView("a.ts", {
+        threads: [
+          {
+            id: "t9",
+            line: 2,
+            side: "old",
+            resolved: false,
+            pending: false,
+            messages: [{ author: "human", body: "why was this dropped?" }],
+          },
+        ],
+      }),
+    ]);
+    expect(document.querySelector(".file .thread .msg-body")?.textContent).toContain(
+      "why was this dropped?",
+    );
+  });
 });

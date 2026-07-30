@@ -128,6 +128,19 @@ export function renderTree(files: TreeFile[]): void {
   if (openTotal > 0) summary.append(el("span", "cmt", `💬${openTotal} open`));
   else summary.append(el("span", "done", `${doneCount}/${files.length} done`));
   head.append(summary);
+  // The size of the change belongs next to the list of what changed, not in the
+  // toolbar competing with the decision buttons.
+  let add = 0;
+  let del = 0;
+  for (const f of files) {
+    if (f.binary) continue;
+    const d = diffStat(f.patch);
+    add += d.add;
+    del += d.del;
+  }
+  const totals = el("span", "tree-totals");
+  totals.append(el("span", "add", `+${add}`), document.createTextNode(" "), el("span", "del", `−${del}`));
+  head.append(totals);
   root.append(head);
   const byPath = new Map(files.map((f) => [f.path, f]));
   for (const node of buildFileTree(files.map((f) => f.path))) {
