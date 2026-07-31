@@ -36,6 +36,26 @@ export function stepIndex(len: number, current: number, dir: 1 | -1): number {
   return (current + dir + len) % len;
 }
 
+/**
+ * Paint the thread walker: position among the open threads, or nothing at all.
+ * A review with everything resolved has nothing to walk, and a control reading
+ * 0/0 is chrome that invites a click and then does nothing.
+ */
+export function renderThreadNav(ids: string[], current: string | null): void {
+  const nav = document.getElementById("threadNav");
+  if (!nav) return;
+  nav.toggleAttribute("hidden", ids.length === 0);
+  const pos = document.getElementById("threadPos");
+  if (!pos) return;
+  if (ids.length === 0) {
+    pos.textContent = "";
+    return;
+  }
+  const at = current ? ids.indexOf(current) : -1;
+  pos.textContent = `${at >= 0 ? at + 1 : 0}/${ids.length}`;
+  pos.title = `${ids.length} unresolved thread(s)`;
+}
+
 /** Room the sticky toolbar and the pinned file header take off the top. */
 function chromeHeight(card: HTMLElement | null): number {
   const bar = document.querySelector<HTMLElement>(".toolbar");

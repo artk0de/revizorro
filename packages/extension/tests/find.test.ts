@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from "vitest";
-import { markMatches, clearMarks, setFindOpen, isFindOpen } from "../media/view/find.js";
+import {
+  markMatches,
+  clearMarks,
+  setFindOpen,
+  isFindOpen,
+  toggleFind,
+} from "../media/view/find.js";
 
 const root = (): HTMLElement => document.getElementById("files")!;
 
@@ -103,6 +109,15 @@ describe("the search bar", () => {
     expect(input.value).toBe("");
     expect(document.querySelectorAll("mark.find-hit")).toHaveLength(0);
     expect(document.getElementById("findPos")?.textContent).toBe("");
+  });
+
+  // The same key that summoned the bar puts it away — hunting for the ✕ after
+  // pressing ⌘F twice is the friction this removes.
+  it("goes away when the summoning key is pressed again", () => {
+    expect(toggleFind()).toBe(true);
+    expect(isFindOpen()).toBe(true);
+    expect(toggleFind()).toBe(false);
+    expect(isFindOpen()).toBe(false);
   });
 
   it("survives a form that has no search bar at all", () => {

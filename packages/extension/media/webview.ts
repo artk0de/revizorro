@@ -33,8 +33,9 @@ import {
   stepId,
   stepIndex,
   jumpTo,
+  renderThreadNav,
 } from "./view/navigate.js";
-import { markMatches, setFindOpen, isFindOpen } from "./view/find.js";
+import { markMatches, setFindOpen, isFindOpen, toggleFind } from "./view/find.js";
 import { composeDraftKey, replyDraftKey, editDraftKey } from "@revizorro/core";
 
 declare function acquireVsCodeApi(): { postMessage: (m: unknown) => void };
@@ -637,19 +638,7 @@ let findHits: HTMLElement[] = [];
 let findAt = -1;
 
 function refreshThreadNav(): void {
-  const ids = unresolvedThreadIds();
-  const at = currentThreadId ? ids.indexOf(currentThreadId) : -1;
-  const pos = document.getElementById("threadPos");
-  if (pos) {
-    pos.textContent = `${at >= 0 ? at + 1 : 0}/${ids.length}`;
-    pos.title = ids.length
-      ? `${ids.length} unresolved thread(s)`
-      : "no unresolved threads left";
-  }
-  for (const id of ["threadPrev", "threadNext"]) {
-    const b = document.getElementById(id);
-    if (b instanceof HTMLButtonElement) b.disabled = ids.length === 0;
-  }
+  renderThreadNav(unresolvedThreadIds(), currentThreadId);
 }
 
 function gotoThread(dir: 1 | -1): void {
@@ -713,6 +702,14 @@ function closeFind(): void {
   findAt = -1;
 }
 
+/** ⌘F and the magnifier are the same switch; closing drops the stale hit list. */
+function toggleFindBar(): void {
+  if (!toggleFind()) {
+    findHits = [];
+    findAt = -1;
+  }
+}
+
 function bindNavigation(): void {
   document.getElementById("threadPrev")?.addEventListener("click", () => {
     gotoThread(-1);
@@ -728,8 +725,7 @@ function bindNavigation(): void {
   });
 
   document.getElementById("findToggle")?.addEventListener("click", () => {
-    if (isFindOpen()) closeFind();
-    else openFind();
+    toggleFindBar();
   });
   document.getElementById("findClose")?.addEventListener("click", () => {
     closeFind();
@@ -756,7 +752,7 @@ function bindNavigation(): void {
     // widget never surfaced in this webview, so the form answers for it.
     if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
       e.preventDefault();
-      openFind();
+      toggleFindBar();
       return;
     }
     // Esc closes the bar from anywhere, including after a click into the diff.

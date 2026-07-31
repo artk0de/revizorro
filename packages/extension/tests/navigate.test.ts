@@ -6,6 +6,7 @@ import {
   stepIndex,
   jumpTo,
   threadElement,
+  renderThreadNav,
 } from "../media/view/navigate.js";
 
 /** A review with two files, the first collapsed, threads in diff order. */
@@ -68,6 +69,45 @@ describe("stepIndex", () => {
     expect(stepIndex(3, 2, 1)).toBe(0);
     expect(stepIndex(3, 0, -1)).toBe(2);
     expect(stepIndex(0, -1, 1)).toBe(-1);
+  });
+});
+
+// Nothing to walk means nothing to show: a control reading 0/0 is chrome that
+// asks to be clicked and then does nothing.
+describe("renderThreadNav", () => {
+  beforeEach(() => {
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<span class="nav" id="threadNav"><span class="navpos" id="threadPos"></span></span>`,
+    );
+  });
+
+  const pos = (): string => document.getElementById("threadPos")!.textContent ?? "";
+  const hidden = (): boolean => document.getElementById("threadNav")!.hasAttribute("hidden");
+
+  it("counts the open threads and where the human stands", () => {
+    renderThreadNav(["a", "b", "c"], "b");
+    expect(pos()).toBe("2/3");
+    expect(hidden()).toBe(false);
+  });
+
+  it("shows the total before the first jump", () => {
+    renderThreadNav(["a", "b"], null);
+    expect(pos()).toBe("0/2");
+  });
+
+  it("disappears entirely once every thread is resolved", () => {
+    renderThreadNav(["a"], "a");
+    renderThreadNav([], "a");
+    expect(hidden()).toBe(true);
+    expect(pos()).toBe("");
+  });
+
+  it("comes back when a new thread opens", () => {
+    renderThreadNav([], null);
+    renderThreadNav(["a"], null);
+    expect(hidden()).toBe(false);
+    expect(pos()).toBe("0/1");
   });
 });
 

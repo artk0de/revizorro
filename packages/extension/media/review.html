@@ -7,9 +7,21 @@
     <style>
       body {
         font-family: var(--vscode-font-family);
+        /* Every size in this form is relative. Without this the whole chain
+           hangs off the browser's 16px default instead of the size the human
+           actually set for their editor, and form controls — which inherit no
+           font at all — drift furthest. */
+        font-size: var(--vscode-font-size, 13px);
         color: var(--vscode-foreground);
         padding: 0;
         margin: 0;
+      }
+      input,
+      button,
+      textarea,
+      select {
+        font-family: inherit;
+        font-size: inherit;
       }
       .toolbar {
         position: sticky;
@@ -27,6 +39,7 @@
       /* Walking the open threads, and searching the diff: two ways of not
          scrolling a long review by hand. */
       .nav { display: inline-flex; align-items: center; gap: 0.15rem; }
+      .nav[hidden] { display: none; }
       .navicon { font-size: 0.85em; opacity: 0.8; cursor: default; }
       /* Summoned over the diff rather than parked in the toolbar: most of a
          review is spent not searching, and a permanent input crowds the
@@ -59,7 +72,7 @@
       .navbtn:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground); }
       .navbtn:disabled { opacity: 0.35; cursor: default; }
       .navpos {
-        font-size: 0.75em;
+        font-size: 0.85em;
         opacity: 0.75;
         min-width: 2.6em;
         text-align: center;
@@ -72,8 +85,8 @@
         border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
         border-radius: 4px;
         padding: 0.25em 0.5em;
-        font-size: 0.8em;
-        width: 11rem;
+        font-size: 0.9em;
+        width: 12rem;
       }
       #findInput:focus { outline: 1px solid var(--vscode-focusBorder); }
       mark.find-hit {
@@ -656,10 +669,10 @@
       <span class="agent" id="agent" title="whether an agent is waiting for your verdict"></span>
       <button id="toggle" class="tipbtn tip-left" data-tip="Toggle inline / side-by-side diff">⇆ split/inline</button>
       <span class="grow"></span>
-      <span class="nav" id="threadNav">
-        <span class="navicon tipbtn tip-right" data-tip="Walk the unresolved comment threads">💬</span>
+      <span class="nav" id="threadNav" hidden>
         <button class="navbtn tipbtn tip-right" id="threadPrev" data-tip="Previous unresolved thread (p)">↑</button>
-        <span class="navpos" id="threadPos" title="position among unresolved threads">0/0</span>
+        <span class="navicon">💬</span>
+        <span class="navpos" id="threadPos"></span>
         <button class="navbtn tipbtn tip-right" id="threadNext" data-tip="Next unresolved thread (n)">↓</button>
       </span>
       <button class="navbtn tipbtn tip-right" id="findToggle" data-tip="Search the diff (⌘F or /)">🔍</button>

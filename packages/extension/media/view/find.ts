@@ -57,6 +57,16 @@ export function setFindOpen(open: boolean): void {
   if (pos) pos.textContent = "";
 }
 
+/**
+ * Flip the bar, reporting whether it ended up open. The key that summons it
+ * puts it away again — hunting for the ✕ after a second ⌘F is friction.
+ */
+export function toggleFind(): boolean {
+  const next = !isFindOpen();
+  setFindOpen(next);
+  return next;
+}
+
 /** Split one text node around a needle, returning the marks it produced. */
 function wrapIn(node: Text, needle: string): HTMLElement[] {
   const text = node.nodeValue ?? "";
