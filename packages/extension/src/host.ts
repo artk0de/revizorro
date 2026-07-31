@@ -266,6 +266,9 @@ export class ReviewHost {
 
   /** Recompute the diff and open a fresh review round (collapsing unchanged viewed files). */
   private async newRound(c: ReviewCtx): Promise<SessionState> {
+    // A new round is a new conversation. Loaders left spinning from the last one
+    // claim the agent is answering questions it has already moved on from.
+    this.pending.clear();
     const prev = await c.store.load(c.worktreeId);
     c.lastDiff = await c.diff.diff(c.worktreeId);
     const s = startRound(prev, c.worktreeId, c.lastDiff, this.scopeOf(c));
@@ -351,6 +354,10 @@ export class ReviewHost {
     if (!cur) return;
     if (c.lastDiff.length === 0) c.lastDiff = await c.diff.diff(c.worktreeId);
     const comments = this.openComments(cur, c.lastDiff);
+    // Replace rather than add: the loaders describe what the agent was just
+    // handed. Adding leaves every earlier question the agent never answered
+    // counted forever, so one open comment reads as three.
+    this.pending.clear();
     for (const { threadId } of comments) this.pending.add(threadId);
     this.onStateRendered(cur, c.lastDiff);
     this.events.emit(c.worktreeId, { type: "decision", verdict: "clarify", comments });
@@ -449,6 +456,9 @@ export class ReviewHost {
       ...cur,
       threads: cur.threads.map((t) => (t.id === threadId ? { ...t, resolved } : t)),
     };
+    // A closed thread has nothing left to wait for: the human stopped waiting
+    // for the answer, so it must stop counting as one the agent owes.
+    if (resolved) this.pending.delete(threadId);
     await c.store.save(next);
     this.onStateRendered(next, c.lastDiff);
   }
