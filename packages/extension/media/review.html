@@ -267,6 +267,9 @@
       #treeToggle.on { opacity: 1; }
       .tree-head {
         display: flex;
+        /* The sidebar drags down to 9rem. Without wrapping, the last item — the
+           change totals — slides out past the right edge and reads as gone. */
+        flex-wrap: wrap;
         gap: 0.4rem;
         align-items: baseline;
         padding: 0.2rem 0.5rem 0.4rem;
@@ -274,6 +277,9 @@
         font-size: 0.9em;
       }
       .tree-head .stat { margin-left: auto; }
+      /* Let the file count give up room first: it is the one thing the reader
+         can infer from the list underneath it. */
+      .tree-head .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
       .tree .node {
         display: flex;
         align-items: center;
