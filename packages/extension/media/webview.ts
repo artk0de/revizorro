@@ -27,6 +27,14 @@ import {
   focusSnapshot,
   restoreFocus,
 } from "./view/drafts.js";
+import {
+  unresolvedThreadIds,
+  threadElement,
+  stepId,
+  stepIndex,
+  jumpTo,
+} from "./view/navigate.js";
+import { markMatches, clearMarks } from "./view/find.js";
 import { composeDraftKey, replyDraftKey, editDraftKey } from "@revizorro/core";
 
 declare function acquireVsCodeApi(): { postMessage: (m: unknown) => void };
@@ -279,6 +287,9 @@ function avatar(author: string): HTMLElement {
 
 function renderThread(t: FileView["threads"][number]): HTMLElement {
   const box = el("div", `thread${t.resolved ? " resolved" : ""}`);
+  // Thread navigation keeps its place across re-renders by id, not by position:
+  // an agent reply arriving mid-walk must not shift the human somewhere else.
+  box.dataset.id = t.id;
   const bar = el("div", "thread-bar");
   const caret = el("span", "tcaret", t.resolved ? "▸" : "▾");
   bar.append(
@@ -610,10 +621,156 @@ function render(): void {
       document.querySelector(`[data-file="${CSS.escape(file)}"][data-line="${endLine}"]`);
     if (anchor instanceof HTMLElement) openCompose(anchor, file, startLine, endLine, side, snippet);
   }
+  // Re-rendering threw away the highlights and changed how many threads are
+  // open; both controls have to catch up before the human touches them again.
+  refreshThreadNav();
+  reapplyFind();
   // Editors reopen in a microtask, so put the caret back after they exist.
   queueMicrotask(() => {
     restoreFocus(focus);
   });
+}
+
+/** Which open thread the human is parked on — an id, so it survives a re-render. */
+let currentThreadId: string | null = null;
+let findHits: HTMLElement[] = [];
+let findAt = -1;
+
+function refreshThreadNav(): void {
+  const ids = unresolvedThreadIds();
+  const at = currentThreadId ? ids.indexOf(currentThreadId) : -1;
+  const pos = document.getElementById("threadPos");
+  if (pos) {
+    pos.textContent = `${at >= 0 ? at + 1 : 0}/${ids.length}`;
+    pos.title = ids.length
+      ? `${ids.length} unresolved thread(s)`
+      : "no unresolved threads left";
+  }
+  for (const id of ["threadPrev", "threadNext"]) {
+    const b = document.getElementById(id);
+    if (b instanceof HTMLButtonElement) b.disabled = ids.length === 0;
+  }
+}
+
+function gotoThread(dir: 1 | -1): void {
+  const next = stepId(unresolvedThreadIds(), currentThreadId, dir);
+  if (!next) return;
+  currentThreadId = next;
+  const box = threadElement(next);
+  if (box) jumpTo(box);
+  refreshThreadNav();
+}
+
+function paintFindPos(): void {
+  const pos = document.getElementById("findPos");
+  const input = document.getElementById("findInput");
+  const query = input instanceof HTMLInputElement ? input.value.trim() : "";
+  if (!pos) return;
+  pos.textContent = query.length < 2 ? "" : `${findAt >= 0 ? findAt + 1 : 0}/${findHits.length}`;
+}
+
+function runFind(query: string): void {
+  const root = document.getElementById("files");
+  if (!root) return;
+  findHits = markMatches(root, query);
+  findAt = -1;
+  paintFindPos();
+}
+
+/** After a re-render the marks are gone; put them back rather than lying about a count. */
+function reapplyFind(): void {
+  const input = document.getElementById("findInput");
+  if (!(input instanceof HTMLInputElement) || input.value.trim().length < 2) {
+    findHits = [];
+    findAt = -1;
+    paintFindPos();
+    return;
+  }
+  const wasAt = findAt;
+  runFind(input.value);
+  findAt = Math.min(wasAt, findHits.length - 1);
+  if (findAt >= 0) findHits[findAt].classList.add("current");
+  paintFindPos();
+}
+
+function stepFind(dir: 1 | -1): void {
+  if (findHits.length === 0) return;
+  findAt = stepIndex(findHits.length, findAt, dir);
+  for (const h of findHits) h.classList.remove("current");
+  const hit = findHits[findAt];
+  hit.classList.add("current");
+  jumpTo(hit);
+  paintFindPos();
+}
+
+function focusFind(): void {
+  const input = document.getElementById("findInput");
+  if (input instanceof HTMLInputElement) {
+    input.focus();
+    input.select();
+  }
+}
+
+function bindNavigation(): void {
+  document.getElementById("threadPrev")?.addEventListener("click", () => {
+    gotoThread(-1);
+  });
+  document.getElementById("threadNext")?.addEventListener("click", () => {
+    gotoThread(1);
+  });
+  document.getElementById("findPrev")?.addEventListener("click", () => {
+    stepFind(-1);
+  });
+  document.getElementById("findNext")?.addEventListener("click", () => {
+    stepFind(1);
+  });
+
+  const input = document.getElementById("findInput");
+  if (input instanceof HTMLInputElement) {
+    input.addEventListener("input", () => {
+      runFind(input.value);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        stepFind(e.shiftKey ? -1 : 1);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        input.value = "";
+        const root = document.getElementById("files");
+        if (root) clearMarks(root);
+        findHits = [];
+        findAt = -1;
+        paintFindPos();
+        input.blur();
+      }
+    });
+  }
+
+  document.addEventListener("keydown", (e) => {
+    // Cmd/Ctrl+F is what a reviewer's hands already do; the host's own find
+    // widget never surfaced in this webview, so the form answers for it.
+    if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
+      e.preventDefault();
+      focusFind();
+      return;
+    }
+    const target = e.target as HTMLElement | null;
+    const typing =
+      target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+    if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === "/") {
+      e.preventDefault();
+      focusFind();
+    } else if (e.key === "n") {
+      e.preventDefault();
+      gotoThread(1);
+    } else if (e.key === "p") {
+      e.preventDefault();
+      gotoThread(-1);
+    }
+  });
+  refreshThreadNav();
 }
 
 function bindButton(id: string, msgType: string): void {
@@ -638,6 +795,7 @@ setTreeVisible(isTreeVisible());
 bindTreeHotkey();
 applyTreeWidth();
 bindTreeResizer();
+bindNavigation();
 
 // Native text selection → floating "Comment" bubble. Select any code (part of a
 // line or across lines) and a bubble offers to comment on the spanned range.
