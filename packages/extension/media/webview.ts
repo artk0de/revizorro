@@ -34,7 +34,7 @@ import {
   stepIndex,
   jumpTo,
 } from "./view/navigate.js";
-import { markMatches, clearMarks } from "./view/find.js";
+import { markMatches, setFindOpen, isFindOpen } from "./view/find.js";
 import { composeDraftKey, replyDraftKey, editDraftKey } from "@revizorro/core";
 
 declare function acquireVsCodeApi(): { postMessage: (m: unknown) => void };
@@ -703,12 +703,14 @@ function stepFind(dir: 1 | -1): void {
   paintFindPos();
 }
 
-function focusFind(): void {
-  const input = document.getElementById("findInput");
-  if (input instanceof HTMLInputElement) {
-    input.focus();
-    input.select();
-  }
+function openFind(): void {
+  setFindOpen(true);
+}
+
+function closeFind(): void {
+  setFindOpen(false);
+  findHits = [];
+  findAt = -1;
 }
 
 function bindNavigation(): void {
@@ -725,6 +727,14 @@ function bindNavigation(): void {
     stepFind(1);
   });
 
+  document.getElementById("findToggle")?.addEventListener("click", () => {
+    if (isFindOpen()) closeFind();
+    else openFind();
+  });
+  document.getElementById("findClose")?.addEventListener("click", () => {
+    closeFind();
+  });
+
   const input = document.getElementById("findInput");
   if (input instanceof HTMLInputElement) {
     input.addEventListener("input", () => {
@@ -736,13 +746,7 @@ function bindNavigation(): void {
         stepFind(e.shiftKey ? -1 : 1);
       } else if (e.key === "Escape") {
         e.preventDefault();
-        input.value = "";
-        const root = document.getElementById("files");
-        if (root) clearMarks(root);
-        findHits = [];
-        findAt = -1;
-        paintFindPos();
-        input.blur();
+        closeFind();
       }
     });
   }
@@ -752,7 +756,12 @@ function bindNavigation(): void {
     // widget never surfaced in this webview, so the form answers for it.
     if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
       e.preventDefault();
-      focusFind();
+      openFind();
+      return;
+    }
+    // Esc closes the bar from anywhere, including after a click into the diff.
+    if (e.key === "Escape" && isFindOpen()) {
+      closeFind();
       return;
     }
     const target = e.target as HTMLElement | null;
@@ -761,7 +770,7 @@ function bindNavigation(): void {
     if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key === "/") {
       e.preventDefault();
-      focusFind();
+      openFind();
     } else if (e.key === "n") {
       e.preventDefault();
       gotoThread(1);

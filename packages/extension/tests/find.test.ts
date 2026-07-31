@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from "vitest";
-import { markMatches, clearMarks } from "../media/view/find.js";
+import { markMatches, clearMarks, setFindOpen, isFindOpen } from "../media/view/find.js";
 
 const root = (): HTMLElement => document.getElementById("files")!;
 
@@ -62,6 +62,55 @@ describe("markMatches", () => {
   it("treats a regex-looking query as literal text", () => {
     html(`<span>a.b and axb</span>`);
     expect(markMatches(root(), "a.b")).toHaveLength(1);
+  });
+});
+
+// The search bar is a panel the reviewer summons, not toolbar furniture competing
+// with the decision buttons for room on a narrow window.
+describe("the search bar", () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <button id="findToggle"></button>
+      <div id="findbar" hidden><input id="findInput" /><span id="findPos"></span></div>
+      <div id="files"><span>needle</span></div>`;
+  });
+
+  it("starts hidden", () => {
+    expect(isFindOpen()).toBe(false);
+  });
+
+  it("reveals the bar and puts the caret in it", () => {
+    setFindOpen(true);
+    expect(isFindOpen()).toBe(true);
+    expect(document.getElementById("findbar")?.hasAttribute("hidden")).toBe(false);
+    expect(document.activeElement?.id).toBe("findInput");
+  });
+
+  it("marks the toolbar button while the bar is up", () => {
+    setFindOpen(true);
+    expect(document.getElementById("findToggle")?.classList.contains("on")).toBe(true);
+    setFindOpen(false);
+    expect(document.getElementById("findToggle")?.classList.contains("on")).toBe(false);
+  });
+
+  it("drops the query and every highlight on the way out", () => {
+    setFindOpen(true);
+    const input = document.getElementById("findInput") as HTMLInputElement;
+    input.value = "needle";
+    markMatches(root(), "needle");
+    setFindOpen(false);
+    expect(isFindOpen()).toBe(false);
+    expect(input.value).toBe("");
+    expect(document.querySelectorAll("mark.find-hit")).toHaveLength(0);
+    expect(document.getElementById("findPos")?.textContent).toBe("");
+  });
+
+  it("survives a form that has no search bar at all", () => {
+    document.body.innerHTML = "";
+    expect(() => {
+      setFindOpen(true);
+    }).not.toThrow();
+    expect(isFindOpen()).toBe(false);
   });
 });
 

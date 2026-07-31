@@ -22,6 +22,41 @@ export function clearMarks(root: ParentNode): void {
   }
 }
 
+/** Whether the search bar is up. Read off the DOM, so a re-render cannot desync it. */
+export function isFindOpen(): boolean {
+  const bar = document.getElementById("findbar");
+  return !!bar && !bar.hasAttribute("hidden");
+}
+
+/**
+ * Summon or dismiss the search bar. It is a panel, not toolbar furniture: on a
+ * narrow window a permanent input crowds out the decision buttons, and most of
+ * a review is spent not searching.
+ *
+ * Closing throws the query and the highlights away — leaving a stale trail lit
+ * behind a hidden bar means the next Enter steps through matches nothing on
+ * screen explains.
+ */
+export function setFindOpen(open: boolean): void {
+  const bar = document.getElementById("findbar");
+  if (!bar) return;
+  bar.toggleAttribute("hidden", !open);
+  document.getElementById("findToggle")?.classList.toggle("on", open);
+  const input = document.getElementById("findInput");
+  if (open) {
+    if (input instanceof HTMLInputElement) {
+      input.focus();
+      input.select();
+    }
+    return;
+  }
+  if (input instanceof HTMLInputElement) input.value = "";
+  const files = document.getElementById("files");
+  if (files) clearMarks(files);
+  const pos = document.getElementById("findPos");
+  if (pos) pos.textContent = "";
+}
+
 /** Split one text node around a needle, returning the marks it produced. */
 function wrapIn(node: Text, needle: string): HTMLElement[] {
   const text = node.nodeValue ?? "";

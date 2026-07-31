@@ -26,7 +26,26 @@
       .round { opacity: 0.85; font-size: 0.85em; font-weight: 600; }
       /* Walking the open threads, and searching the diff: two ways of not
          scrolling a long review by hand. */
-      .nav, .find { display: inline-flex; align-items: center; gap: 0.15rem; }
+      .nav { display: inline-flex; align-items: center; gap: 0.15rem; }
+      .navicon { font-size: 0.85em; opacity: 0.8; cursor: default; }
+      /* Summoned over the diff rather than parked in the toolbar: most of a
+         review is spent not searching, and a permanent input crowds the
+         decision buttons off a narrow window. */
+      .findbar {
+        position: fixed;
+        top: calc(var(--toolbar-h, 2.9rem) + 0.6rem);
+        right: 1.2rem;
+        z-index: 20;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.35rem 0.5rem;
+        background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+        border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+      }
+      .findbar[hidden] { display: none; }
       .navbtn {
         background: none;
         border: 1px solid var(--vscode-panel-border);
@@ -638,19 +657,23 @@
       <button id="toggle" class="tipbtn tip-left" data-tip="Toggle inline / side-by-side diff">⇆ split/inline</button>
       <span class="grow"></span>
       <span class="nav" id="threadNav">
+        <span class="navicon tipbtn tip-right" data-tip="Walk the unresolved comment threads">💬</span>
         <button class="navbtn tipbtn tip-right" id="threadPrev" data-tip="Previous unresolved thread (p)">↑</button>
         <span class="navpos" id="threadPos" title="position among unresolved threads">0/0</span>
         <button class="navbtn tipbtn tip-right" id="threadNext" data-tip="Next unresolved thread (n)">↓</button>
       </span>
-      <span class="find" id="find">
-        <input id="findInput" type="search" placeholder="Search diff (/)" spellcheck="false" />
-        <span class="navpos" id="findPos"></span>
-        <button class="navbtn tipbtn tip-right" id="findPrev" data-tip="Previous match (shift+enter)">↑</button>
-        <button class="navbtn tipbtn tip-right" id="findNext" data-tip="Next match (enter)">↓</button>
-      </span>
+      <button class="navbtn tipbtn tip-right" id="findToggle" data-tip="Search the diff (⌘F or /)">🔍</button>
       <button class="act approve tipbtn" id="approve" data-tip="Approve — the change passes the gate, ready to merge">✓ Approve</button>
       <button class="act changes tipbtn" id="requestChanges" data-tip="Request changes — the agent fixes every comment and re-submits a new round">✗ Request changes</button>
       <button class="act clarify tipbtn tip-right" id="clarify" data-tip="Clarify — the agent answers all open questions; the form stays open">? Clarify</button>
+    </div>
+    <div class="findbar" id="findbar" hidden>
+      <span class="navicon">🔍</span>
+      <input id="findInput" type="search" placeholder="Search the diff" spellcheck="false" />
+      <span class="navpos" id="findPos"></span>
+      <button class="navbtn" id="findPrev" title="Previous match (shift+enter)">↑</button>
+      <button class="navbtn" id="findNext" title="Next match (enter)">↓</button>
+      <button class="navbtn" id="findClose" title="Close (esc)">✕</button>
     </div>
     <div class="main" id="main">
       <aside class="tree" id="tree"></aside>
