@@ -145,6 +145,16 @@ describe("runReview", () => {
     });
     expect(opts?.baseRef).toBeUndefined();
   });
+  it("advertises `update` in the usage, because the command ships alongside review", async () => {
+    const r = await runReview([], {
+      transport: fakeTransport({ type: "idle" }),
+      worktreeId: "wt1",
+      repoRoot: "/repo",
+      readPush: () => ({ replies: [], comments: [] }),
+    });
+
+    expect(r.stdout).toContain("revizorro update");
+  });
   it("exits 2 on an unknown command", async () => {
     const r = await runReview(["bogus"], {
       transport: fakeTransport({ type: "idle" }),

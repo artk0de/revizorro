@@ -1,0 +1,12 @@
+# What ships in the .vsix: dist/extension.cjs, media/review.html,
+# media/webview.js (the esbuild bundle), the icon, README, CHANGELOG, LICENSE.
+# Everything below is a build input — the bundles already inline it.
+src/**
+tests/**
+media/**/*.ts
+tsconfig.json
+node_modules/**
+.vscodeignore
+**/*.map
+**/*.tsbuildinfo
+*.vsix

@@ -65,7 +65,12 @@
     [
       "@semantic-release/git",
       {
-        "assets": ["packages/cli/package.json", "packages/extension/package.json", "CHANGELOG.md"],
+        "assets": [
+          "packages/cli/package.json",
+          "packages/extension/package.json",
+          "plugin/.claude-plugin/plugin.json",
+          "CHANGELOG.md"
+        ],
         "message": "chore(release): ${nextRelease.version}\n\n${nextRelease.notes}"
       }
     ],

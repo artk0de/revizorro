@@ -83,7 +83,8 @@ npm i -g @revizorro/cli
 **3. VS Code extension** — from the Marketplace (or a local `.vsix`):
 
 ```bash
-code --install-extension revizorro.vsix
+code --install-extension artk0de.revizorro   # from the Marketplace
+code --install-extension revizorro.vsix      # or a locally built package
 ```
 
 Then, in a project open in VS Code with the extension active:

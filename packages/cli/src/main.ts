@@ -20,6 +20,7 @@ const USAGE = [
   "  revizorro review --worktree      start or continue a review round (blocks for one event)",
   "  revizorro review --push <file>   deliver an agent reply/comment, then block for the next event",
   "  revizorro review --check         exit 10 if the worktree has a diff, 0 if empty (no form, no host)",
+  "  revizorro update                 bring the CLI, the VS Code extension and the Claude skill to one version",
   "",
   "Options:",
   "  --staged-only                    review just the staged change, against HEAD (skip unstaged and untracked)",

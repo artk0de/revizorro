@@ -1,15 +1,31 @@
 {
   "name": "revizorro",
-  "displayName": "revizorro",
-  "description": "Pre-merge AI code review in VS Code — an AI agent reviews your worktree diff GitHub-PR-style (inline comments, threads, Ask-agent, approve/decline) and applies fixes until you approve. No GitHub required.",
-  "publisher": "revizorro",
-  "version": "0.0.21",
+  "displayName": "Revizorro",
+  "description": "Review what your AI agent wrote before it is committed — a GitHub-PR-grade form over your worktree diff, with inline threads, Ask-agent and approve/request-changes. Nothing is pushed.",
+  "publisher": "artk0de",
+  "version": "0.0.36",
   "type": "module",
   "main": "./dist/extension.cjs",
+  "icon": "icon.png",
   "license": "MIT",
+  "categories": [
+    "AI",
+    "SCM Providers"
+  ],
+  "keywords": [
+    "code review",
+    "ai agent",
+    "diff",
+    "pre-commit",
+    "claude"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/artk0de/revizorro"
+  },
+  "homepage": "https://github.com/artk0de/revizorro#readme",
+  "bugs": {
+    "url": "https://github.com/artk0de/revizorro/issues"
   },
   "engines": {
     "vscode": "^1.90.0"
@@ -21,19 +37,19 @@
     "commands": [
       {
         "command": "revizorro.toggleViewMode",
-        "title": "revizorro: Toggle Diff View (split/inline)"
+        "title": "Revizorro: Toggle Diff View (split/inline)"
       },
       {
         "command": "revizorro.approve",
-        "title": "revizorro: Approve"
+        "title": "Revizorro: Approve"
       },
       {
         "command": "revizorro.requestChanges",
-        "title": "revizorro: Request changes"
+        "title": "Revizorro: Request changes"
       },
       {
         "command": "revizorro.clarify",
-        "title": "revizorro: Clarify"
+        "title": "Revizorro: Clarify"
       }
     ]
   },

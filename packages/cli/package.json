@@ -1,19 +1,30 @@
 {
   "name": "@revizorro/cli",
   "version": "0.0.0",
+  "description": "CLI that drives a Revizorro review round: blocks until you act on the review form in VS Code, then prints the event as JSON.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": { "revizorro": "dist/revizorro.cjs" },
-  "files": ["dist"],
+  "files": ["dist", "plugin"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/artk0de/revizorro.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/artk0de/revizorro#readme",
+  "bugs": { "url": "https://github.com/artk0de/revizorro/issues" },
+  "keywords": ["code review", "ai agent", "vscode", "claude", "pre-commit"],
+  "engines": { "node": ">=20" },
   "publishConfig": { "access": "public" },
   "scripts": {
-    "build": "tsc -p tsconfig.json && esbuild bin/revizorro.js --bundle --platform=node --format=cjs --outfile=dist/revizorro.cjs"
+    "build": "node ../../scripts/sync-plugin.mjs && tsc -p tsconfig.json && esbuild bin/revizorro.js --bundle --platform=node --format=cjs --outfile=dist/revizorro.cjs"
   },
-  "dependencies": {
+  "devDependencies": {
     "@revizorro/protocol": "*",
     "@revizorro/core": "*",
-    "@revizorro/core-adapters": "*"
-  },
-  "devDependencies": { "esbuild": "^0.21.5" }
+    "@revizorro/core-adapters": "*",
+    "esbuild": "^0.21.5"
+  }
 }

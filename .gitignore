@@ -2,6 +2,8 @@ node_modules
 dist
 *.vsix
 packages/extension/media/webview.js
+# Mirrored from the root CHANGELOG at release time (see scripts/set-extension-version.mjs).
+packages/extension/CHANGELOG.md
 .claude/revizorro/
 
 # Beads / Dolt files (added by bd init)
@@ -9,3 +11,6 @@ packages/extension/media/webview.js
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# Mirror of the repo-root plugin/, refreshed by scripts/sync-plugin.mjs at build time.
+packages/cli/plugin/
