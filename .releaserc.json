@@ -57,7 +57,7 @@
     [
       "@semantic-release/exec",
       {
-        "prepareCmd": "node scripts/set-extension-version.mjs ${nextRelease.version} && npm run build",
+        "prepareCmd": "node scripts/set-extension-version.mjs ${nextRelease.version} && npm run build && cd packages/extension && npx --yes @vscode/vsce package --no-dependencies -o ../cli/extension.vsix",
         "publishCmd": "cd packages/extension && npx --yes @vscode/vsce publish ${nextRelease.version} --no-dependencies -p \"$VSCE_PAT\""
       }
     ],

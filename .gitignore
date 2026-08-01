@@ -14,3 +14,6 @@ packages/extension/CHANGELOG.md
 
 # Mirror of the repo-root plugin/, refreshed by scripts/sync-plugin.mjs at build time.
 packages/cli/plugin/
+
+# Packaged extension, produced into the CLI package at release time (see .releaserc.json).
+packages/cli/extension.vsix

@@ -47,7 +47,7 @@ async function update() {
         payloadDir: join(packageRoot, "plugin"),
         now: () => new Date().toISOString(),
       }),
-      extensionLeg({ shell: nodeShell }),
+      extensionLeg({ shell: nodeShell, vsixPath: join(packageRoot, "extension.vsix") }),
     ],
   });
   if (stdout) process.stdout.write(`${stdout}\n`);

@@ -58,6 +58,16 @@ describe("the release configuration", () => {
     readFileSync(fileURLToPath(new URL("../../../.releaserc.json", import.meta.url)), "utf8"),
   ) as { plugins: unknown[] };
 
+  it("packages the extension into the CLI before npm publishes it", () => {
+    const exec = releaserc.plugins.find(
+      (p): p is [string, { prepareCmd: string }] =>
+        Array.isArray(p) && p[0] === "@semantic-release/exec",
+    );
+
+    expect(exec?.[1].prepareCmd).toContain("vsce package");
+    expect(exec?.[1].prepareCmd).toContain("cli/extension.vsix");
+  });
+
   it("commits the plugin manifest, so the stamped version is not lost after the release", () => {
     const git = releaserc.plugins.find(
       (p): p is [string, { assets: string[] }] =>

@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": { "revizorro": "dist/revizorro.cjs" },
-  "files": ["dist", "plugin"],
+  "files": ["dist", "plugin", "extension.vsix"],
   "license": "MIT",
   "repository": {
     "type": "git",

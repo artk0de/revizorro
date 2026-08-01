@@ -41,6 +41,12 @@ describe("published @revizorro/cli manifest", () => {
     expect(pkg.scripts?.build).toContain("sync-plugin");
   });
 
+  // The extension travels in the same tarball, so `revizorro update` can install
+  // it from disk — no Marketplace listing and no publisher token on the path.
+  it("ships the packaged extension, so update installs it without the Marketplace", () => {
+    expect(pkg.files).toContain("extension.vsix");
+  });
+
   it("carries the metadata the npm listing renders", () => {
     expect(pkg.description).toBeTruthy();
     expect(pkg.license).toBe("MIT");
