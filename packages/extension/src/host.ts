@@ -1,6 +1,12 @@
-import { HttpReviewHost, FsSessionStore, GitDiffProvider } from "@revizorro/core-adapters";
+import {
+  HttpReviewHost,
+  FsSessionStore,
+  GitDiffProvider,
+  worktreeIdFor,
+} from "@revizorro/core-adapters";
 import {
   startRound,
+  decideCollapsed,
   applyPush,
   applyDecision,
   markVerdictDelivered,
@@ -181,6 +187,35 @@ export class ReviewHost {
     return this.current;
   }
 
+  /**
+   * Bring an unfinished review back after a window reload.
+   *
+   * The form is opened by the agent's `review` call, and nothing else used to open
+   * it — so reloading a window mid-review threw the panel away and left the human
+   * with no way to answer, since only the agent can ask for it again. A round that
+   * is still open is a review in progress, and the window it belongs to should show
+   * it. A decided or abandoned one stays closed: finished work must not pop back up
+   * every time a window restarts.
+   */
+  async restore(repoRoot: string): Promise<void> {
+    const branch = await new GitDiffProvider(repoRoot).branch();
+    const worktreeId = worktreeIdFor(repoRoot);
+    const s = await new FsSessionStore(repoRoot, branch).load(worktreeId);
+    if (s?.status !== "open" || s.interrupted) return;
+
+    this.branchName = branch;
+    // Reviewing whatever the round was already scoped to — a reload is not a new
+    // request, so it must not silently widen a staged-only review to the branch.
+    const c = this.ctx(repoRoot, worktreeId, resolveScope(s, {}));
+    c.lastDiff = await c.diff.diff(worktreeId);
+    // The tree may well have moved while the window was down, so ticks are re-earned
+    // the same way any other re-read of the diff earns them.
+    const { files } = decideCollapsed(s.files, c.lastDiff);
+    const reconciled = { ...s, files };
+    await c.store.save(reconciled);
+    this.onFormOpened(reconciled, c.lastDiff);
+  }
+
   /** Start the HTTP broker and return its port (the extension registers it globally). */
   async start(): Promise<number> {
     return this.events.start();
@@ -200,7 +235,14 @@ export class ReviewHost {
       // Always re-read the diff: the agent calls review again precisely because the
       // tree moved on (fixes applied, files staged, work committed).
       c.lastDiff = await c.diff.diff(c.worktreeId);
-      this.onFormOpened(cur, c.lastDiff);
+      // And re-earn the ticks. A viewed mark says "I have read this diff"; once the
+      // agent rewrites the file, the human has not read what is now on screen, and a
+      // tick left standing invites them to approve code nobody looked at. Continuing
+      // a round has to reconcile the marks the same way starting one does.
+      const { files } = decideCollapsed(cur.files, c.lastDiff);
+      const reconciled = { ...cur, files };
+      await c.store.save(reconciled);
+      this.onFormOpened(reconciled, c.lastDiff);
       return;
     }
     // A verdict decided moments ago that never reached an agent — the human hit

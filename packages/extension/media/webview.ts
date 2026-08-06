@@ -29,6 +29,7 @@ import {
 } from "./view/drafts.js";
 import {
   unresolvedThreadIds,
+  allThreadIds,
   threadElement,
   stepId,
   stepIndex,
@@ -638,11 +639,13 @@ let findHits: HTMLElement[] = [];
 let findAt = -1;
 
 function refreshThreadNav(): void {
-  renderThreadNav(unresolvedThreadIds(), currentThreadId);
+  renderThreadNav(unresolvedThreadIds(), currentThreadId, allThreadIds());
 }
 
 function gotoThread(dir: 1 | -1): void {
-  const next = stepId(unresolvedThreadIds(), currentThreadId, dir);
+  // Diff order including resolved threads: the cursor keeps its place when the
+  // thread under it is ticked off, so "next" reaches the one after it.
+  const next = stepId(unresolvedThreadIds(), currentThreadId, dir, allThreadIds());
   if (!next) return;
   currentThreadId = next;
   const box = threadElement(next);

@@ -60,13 +60,39 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Build & Test
 
-_Add your build and test commands here_
+```bash
+npm run build      # every package, in dependency order
+npx vitest run     # whole suite
+npx eslint .       # zero errors is the gate; warnings are tracked, not ignored
+```
+
+## Ship the build after every change (MANDATORY)
+
+Touched anything under `packages/` and finished the change? **Install the fresh
+build without being asked.** Reviewing against a stale extension wastes the
+human's time on bugs that are already fixed, or hides ones that are not.
 
 ```bash
-# Example:
-# npm install
-# npm test
+# 1. Bump the extension version. NOT optional — VS Code serves a cached copy
+#    when --force reinstalls a version it already has, so a same-version install
+#    silently leaves the old code running.
+#    packages/extension/package.json: "version": "0.0.N" -> "0.0.N+1"
+
+npm run build
+cd packages/extension && npx --yes @vscode/vsce package --no-dependencies -o /tmp/revizorro.vsix
+code --install-extension /tmp/revizorro.vsix --force
+
+# 2. Verify by reading back what is actually installed, never by assuming:
+code --list-extensions --show-versions | grep revizorro
 ```
+
+Then **tell the human to reload the VS Code window**. `--install-extension`
+writes to disk, but a running window keeps executing the extension host it
+started with, so the new code is not live until a reload. Reloading mid-review
+also drops the open round's long poll.
+
+The CLI needs no separate step: `@revizorro/cli` is `npm link`ed to this
+checkout, so `npm run build` alone refreshes the `revizorro` binary.
 
 ## Architecture Overview
 

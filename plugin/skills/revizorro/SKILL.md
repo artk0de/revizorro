@@ -120,7 +120,10 @@ windows are skipped and cleaned up automatically.
      merge (or report ready-to-merge).
 
    - **`decision` / `changes_requested`** `{ comments: [...] }` — NOW apply fixes
-     for every comment. For each addressed comment, `--push` a reply into its
+     for every comment. **Check `verdict` before you touch anything.** A `clarify`
+     arrives carrying an identical `comments` array, so the payload cannot tell you
+     which of the two you are in — only the `verdict` field can, and editing code on
+     the wrong one is the single most expensive mistake in this loop. For each addressed comment, `--push` a reply into its
      thread saying what you did (so the human can verify and mark it resolved) —
      all of them in ONE push, not one call per comment.
      Then start a NEW round, keeping the same scope (no flags):
@@ -139,6 +142,11 @@ windows are skipped and cleaned up automatically.
 
    - **`decision` / `clarify`** `{ comments: [...] }` — a conversation, NOT a work
      order. Do not edit a single line of code here, however obvious the fix looks.
+
+     This event looks EXACTLY like `changes_requested` — same `type`, same
+     `comments` array — and the only thing separating them is `verdict`. If you
+     reached for the editor because the comments read like fixes to make, you have
+     misread the event: re-read `verdict`, put the file back, and answer instead.
 
      Answer EVERY comment in the list, and where a request is ambiguous, **ask
      back**: name the options you see and say which you would pick. Silently

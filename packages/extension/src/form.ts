@@ -64,6 +64,28 @@ export class ReviewForm {
     void this.panel.webview.postMessage(this.lastMessage);
   }
 
+  /**
+   * Give the diff the window's full height while a human reads it.
+   *
+   * The terminal the agent runs in is the biggest thing competing for that height,
+   * and it has nothing to say until the review is answered. Scoped to one window by
+   * construction: every VS Code window runs its own extension host, so this reaches
+   * only the workbench the form opened in — which is not always the window the human
+   * was last looking at.
+   */
+  private collapseTerminal(): void {
+    // Only when a terminal is actually open. The panel also carries Problems and
+    // Output, and closing it on someone reading those is a theft, not a favour.
+    if (vscode.window.terminals.length === 0) return;
+    void vscode.commands.executeCommand("workbench.action.closePanel");
+  }
+
+  /** Bring the terminal back, without conjuring one that never existed. */
+  private restoreTerminal(): void {
+    if (vscode.window.terminals.length === 0) return;
+    void vscode.commands.executeCommand("workbench.action.terminal.focus");
+  }
+
   private ensurePanel(): void {
     if (this.panel) return;
     this.panel = vscode.window.createWebviewPanel(
@@ -80,11 +102,20 @@ export class ReviewForm {
       "<\\/script>",
     );
     this.panel.webview.html = html.replace("// <!--WEBVIEW_JS-->", () => js);
+    // Created, not rendered: a re-render must never slam shut a terminal the human
+    // deliberately opened while reading.
+    this.collapseTerminal();
     this.panel.onDidDispose(() => {
       this.panel = undefined;
       // Tab closed without Approve/Request changes → the human abandoned the
       // review; wake any blocked agent with a closed event instead of hanging.
-      if (!this.decided) void this.host.abandon();
+      if (!this.decided) {
+        void this.host.abandon();
+        return;
+      }
+      // A verdict hands the work back to the agent, and the terminal is where the
+      // human watches it pick the work up.
+      this.restoreTerminal();
     });
     this.panel.webview.onDidReceiveMessage(
       (m: {

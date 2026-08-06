@@ -54,12 +54,35 @@ describe("stepId", () => {
     expect(stepId(["a", "b", "c"], "a", -1)).toBe("c");
   });
 
-  it("treats a thread that got resolved under the cursor as no position at all", () => {
+  it("treats a cursor the page no longer knows at all as no position", () => {
     expect(stepId(["a", "b"], "gone", 1)).toBe("a");
   });
 
   it("has nowhere to go in an empty review", () => {
     expect(stepId([], null, 1)).toBeNull();
+  });
+
+  // Resolving is how a reader finishes with a thread, so it is the most common
+  // moment to press "next". Diff order — resolved threads included — is what keeps
+  // the cursor's place once the thread under it drops out of the open list.
+  describe("after the thread under the cursor is resolved", () => {
+    const all = ["t1", "t2", "t3", "t4", "t5"];
+
+    it("moves on to the thread after it, rather than back to the top", () => {
+      expect(stepId(["t1", "t2", "t4", "t5"], "t3", 1, all)).toBe("t4");
+    });
+
+    it("steps back to the open thread before it", () => {
+      expect(stepId(["t1", "t2", "t4", "t5"], "t3", -1, all)).toBe("t2");
+    });
+
+    it("carries on past a whole run of resolved threads", () => {
+      expect(stepId(["t1", "t5"], "t3", 1, all)).toBe("t5");
+    });
+
+    it("still wraps when nothing open is left below it", () => {
+      expect(stepId(["t1", "t2"], "t5", 1, all)).toBe("t1");
+    });
   });
 });
 
@@ -89,6 +112,14 @@ describe("renderThreadNav", () => {
     renderThreadNav(["a", "b", "c"], "b");
     expect(pos()).toBe("2/3");
     expect(hidden()).toBe(false);
+  });
+
+  // Resolving a thread must not throw the reader back to the start of the list.
+  // The cursor keeps its place in diff order, so the position it reports is the
+  // number of open threads up to and including where it stands.
+  it("holds the cursor's place when the thread under it is resolved", () => {
+    renderThreadNav(["a", "c"], "b", ["a", "b", "c"]);
+    expect(pos()).toBe("1/2");
   });
 
   it("shows the total before the first jump", () => {

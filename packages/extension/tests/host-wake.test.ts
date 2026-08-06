@@ -34,6 +34,11 @@ const openRound = async (): Promise<{ poll: Promise<unknown>; port: number }> =>
   );
   const port = await host.start();
   const poll = new HttpReviewClient(port).review("wt1", repo);
+  // Some tests deliberately leave this poll hanging — that IS the thing under test.
+  // Teardown then tears the socket down beneath it, and the rejection lands with
+  // nobody holding it. Marking it handled here keeps that from reading as a real
+  // error; tests that await the poll still see whatever it resolves to.
+  void poll.catch(() => undefined);
   await opened;
   return { poll, port };
 };
@@ -66,10 +71,16 @@ describe("a session belongs to its branch", () => {
     // Record WHICH callback fired: a replayed verdict renders, it does not open a
     // round, and asserting only on the numbers would pass on that replay.
     const seen: { how: string; round: number; status: string; threads: unknown[] }[] = [];
+    // Opening a round runs a git diff, so it can land after the poll has already
+    // answered on its own timer. Waiting on the callback itself beats sleeping in
+    // 50ms steps: the test then costs what the work costs, instead of budgeting a
+    // ceiling it has to fit inside.
+    let sawOpen: () => void = () => undefined;
     const capture =
       (how: string) =>
       (s: { round: number; status: string; threads: unknown[] }): void => {
         seen.push({ how, round: s.round, status: s.status, threads: s.threads });
+        if (how === "open") sawOpen();
       };
     host = new ReviewHost(capture("render"), capture("open"));
     const port = await host.start();
@@ -82,12 +93,12 @@ describe("a session belongs to its branch", () => {
     git(repo, "checkout", "-qb", "other");
     writeFileSync(join(repo, "a.ts"), "export const a = 3;\n");
     seen.length = 0;
+    // Arm before the call: the open we care about is the one this review triggers.
+    const reopened = new Promise<void>((r) => {
+      sawOpen = r;
+    });
     await client.review("wt1", repo);
-    // The poll answers on its own timer; opening the round runs a git diff and can
-    // finish after it. Wait for the form, or the assertion races the work.
-    for (let i = 0; i < 60 && !seen.some((e) => e.how === "open"); i++) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
+    await reopened;
 
     const opened = seen.filter((e) => e.how === "open");
     expect(opened).toHaveLength(1);
@@ -95,7 +106,9 @@ describe("a session belongs to its branch", () => {
     expect(opened[0].threads).toEqual([]);
     // Nothing from the old branch may be replayed into the new one.
     expect(seen.some((e) => e.status === "changes_requested")).toBe(false);
-  });
+    // Real git on two branches plus two long-poll round trips. The default 5s is
+    // less than this test's own worst case once the whole suite runs at once.
+  }, 20_000);
 });
 
 // Only "Ask agent" is a request for the agent's attention. A passive comment is a

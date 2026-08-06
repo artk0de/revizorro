@@ -3,3 +3,4 @@ export * from "./diff-git.js";
 export * from "./http-server.js";
 export * from "./http-client.js";
 export * from "./registry.js";
+export * from "./worktree-id.js";

@@ -1,10 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-
-export function resolveWorktreeId(cwd: string): string {
-  const top = execFileSync("git", ["rev-parse", "--show-toplevel"], {
-    cwd,
-    encoding: "utf8",
-  }).trim();
-  return createHash("sha1").update(top).digest("hex").slice(0, 12);
-}
+// The rule lives with the other git-touching adapters, because the extension needs
+// the very same identity to find a session again after a window reload. Re-exported
+// here so `@revizorro/cli` keeps its published surface.
+export { resolveWorktreeId, worktreeIdFor } from "@revizorro/core-adapters";

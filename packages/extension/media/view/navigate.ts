@@ -11,6 +11,17 @@ export function unresolvedThreadIds(): string[] {
   return [...open].map((t) => t.dataset.id ?? "").filter(Boolean);
 }
 
+/**
+ * Every thread in diff order, resolved ones included.
+ *
+ * This is what lets a cursor keep its place when the thread under it closes:
+ * the open list alone cannot say where a just-resolved thread used to sit.
+ */
+export function allThreadIds(): string[] {
+  const all = document.querySelectorAll<HTMLElement>("#files .thread");
+  return [...all].map((t) => t.dataset.id ?? "").filter(Boolean);
+}
+
 /** The thread box carrying an id, or null once a re-render has dropped it. */
 export function threadElement(id: string): HTMLElement | null {
   const all = [...document.querySelectorAll<HTMLElement>("#files .thread")];
@@ -18,15 +29,33 @@ export function threadElement(id: string): HTMLElement | null {
 }
 
 /**
- * Where the next step lands. A cursor that is no longer in the list — the human
- * resolved the thread they were parked on — counts as no position, so forward
- * starts over at the top instead of silently stopping.
+ * Where the next step lands.
+ *
+ * Stepping walks diff order — `all`, resolved threads included — and returns the
+ * first thread still open. That matters most right after a resolve: finishing
+ * thread 3 and pressing "next" has to reach 4, not throw the reader back to 1,
+ * which is what happens if the cursor is read as "no position" the moment its
+ * thread leaves the open list.
  */
-export function stepId(ids: string[], current: string | null, dir: 1 | -1): string | null {
+export function stepId(
+  ids: string[],
+  current: string | null,
+  dir: 1 | -1,
+  all: string[] = ids,
+): string | null {
   if (ids.length === 0) return null;
-  const at = current ? ids.indexOf(current) : -1;
-  if (at < 0) return dir === 1 ? ids[0] : ids[ids.length - 1];
-  return ids[(at + dir + ids.length) % ids.length];
+  const from = current === null ? -1 : all.indexOf(current);
+  // A cursor the page has never heard of (a thread dropped by a re-render) has no
+  // place to walk from, so start at the near end.
+  if (from < 0) return dir === 1 ? ids[0] : ids[ids.length - 1];
+
+  const open = new Set(ids);
+  const n = all.length;
+  for (let i = 1; i <= n; i++) {
+    const id = all[(((from + dir * i) % n) + n) % n];
+    if (open.has(id)) return id;
+  }
+  return null;
 }
 
 /** Same wrap-around walk over a plain count; -1 means "nowhere yet". */
@@ -41,7 +70,11 @@ export function stepIndex(len: number, current: number, dir: 1 | -1): number {
  * A review with everything resolved has nothing to walk, and a control reading
  * 0/0 is chrome that invites a click and then does nothing.
  */
-export function renderThreadNav(ids: string[], current: string | null): void {
+export function renderThreadNav(
+  ids: string[],
+  current: string | null,
+  all: string[] = ids,
+): void {
   const nav = document.getElementById("threadNav");
   if (!nav) return;
   nav.toggleAttribute("hidden", ids.length === 0);
@@ -51,9 +84,26 @@ export function renderThreadNav(ids: string[], current: string | null): void {
     pos.textContent = "";
     return;
   }
-  const at = current ? ids.indexOf(current) : -1;
-  pos.textContent = `${at >= 0 ? at + 1 : 0}/${ids.length}`;
+  pos.textContent = `${position(ids, current, all)}/${ids.length}`;
   pos.title = `${ids.length} unresolved thread(s)`;
+}
+
+/**
+ * Which of the open threads the cursor stands on — counting from 1, or 0 before
+ * the reader has moved at all.
+ *
+ * When the thread under the cursor has just been resolved it is no longer in the
+ * open list, but the reader has not gone anywhere: the answer is how many open
+ * threads sit at or above its place in diff order. Reporting 0 there is what made
+ * the counter lurch back to the top the moment a thread was ticked off.
+ */
+function position(ids: string[], current: string | null, all: string[]): number {
+  if (current === null) return 0;
+  const at = ids.indexOf(current);
+  if (at >= 0) return at + 1;
+  const stood = all.indexOf(current);
+  if (stood < 0) return 0;
+  return ids.filter((id) => all.indexOf(id) < stood).length;
 }
 
 /** Room the sticky toolbar and the pinned file header take off the top. */

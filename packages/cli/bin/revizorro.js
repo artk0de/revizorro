@@ -8,12 +8,12 @@ import {
   GitDiffProvider,
   orderedHosts,
   unregisterHost,
-  isDeadHostError,
   hostMatchesProject,
 } from "@revizorro/core-adapters";
 import { PushPayload } from "@revizorro/protocol";
 import {
   runReview,
+  reviewThroughAnyWindow,
   resolveWorktreeId,
   runUpdate,
   npmLeg,
@@ -101,41 +101,54 @@ async function main() {
     );
   }
 
-  for (const host of hosts) {
-    const port = host.port;
-    // Falling back to an unrelated window is legitimate (the agent may run from a
-    // terminal with no window of its own), but the form then opens somewhere the
-    // human is not looking — say so instead of leaving them staring at a dead tab.
-    if (!hostMatchesProject(host, repoRoot)) {
-      process.stderr.write(
-        `revizorro: no VS Code window has ${repoRoot} open — the review form will appear in ` +
-          `the window for ${host.project || "(no project)"}\n`,
-      );
-    }
-    try {
-      const { stdout, exitCode } = await runReview(argv, {
+  // Say the mismatch once per window, not once per attempt: a reload can make us
+  // try the same window several times, and repeating the warning reads like a fault.
+  const warned = new Set();
+  const started = Date.now();
+
+  const { stdout, exitCode } = await reviewThroughAnyWindow({
+    // Read afresh every sweep. A window that is restarting comes back on a NEW
+    // port, so a list captured before the search began can never hold it.
+    hosts: () => orderedHosts(repoRoot).map((h) => h.port),
+    drop: (port) => unregisterHost(port),
+    wait: (ms) => new Promise((r) => setTimeout(r, ms)),
+    elapsed: () => Date.now() - started,
+    attempt: async (port, carryPush) => {
+      const entry = orderedHosts(repoRoot).find((h) => h.port === port);
+      // Falling back to an unrelated window is legitimate (the agent may run from a
+      // terminal with no window of its own), but the form then opens somewhere the
+      // human is not looking — say so instead of leaving them staring at a dead tab.
+      if (entry && !hostMatchesProject(entry, repoRoot) && !warned.has(port)) {
+        warned.add(port);
+        process.stderr.write(
+          `revizorro: no VS Code window has ${repoRoot} open — the review form will appear in ` +
+            `the window for ${entry.project || "(no project)"}\n`,
+        );
+      }
+      return runReview(carryPush ? argv : withoutPush(argv), {
         transport: new HttpReviewClient(port),
         worktreeId,
         repoRoot,
         readPush,
       });
-      if (stdout) process.stdout.write(`${stdout}\n`);
-      process.exit(exitCode);
-    } catch (err) {
-      // The window is gone — closed, reloaded, or its extension was updated while
-      // we were blocked on the long poll (that arrives as ECONNRESET, not
-      // ECONNREFUSED). Drop the stale registry entry and try the next window.
-      if (isDeadHostError(err)) {
-        unregisterHost(port);
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw new Error(
-    `no live revizorro window (tried ${hosts.length}) — a window was reloaded or its ` +
-      `extension updated mid-review. Reload a VS Code window with the extension, then re-run review`,
-  );
+    },
+  });
+
+  if (stdout) process.stdout.write(`${stdout}\n`);
+  process.exit(exitCode);
+}
+
+/**
+ * The same call with its `--push` dropped.
+ *
+ * Used when a retry follows a connection that died after it was established: the
+ * push may already have been applied and written to the session, and sending it
+ * again would put the agent's replies into the human's threads twice. The restored
+ * window reads what was persisted instead.
+ */
+function withoutPush(argv) {
+  const at = argv.indexOf("--push");
+  return at < 0 ? argv : [...argv.slice(0, at), ...argv.slice(at + 2)];
 }
 
 main().catch((err) => {

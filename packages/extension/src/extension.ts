@@ -35,14 +35,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   hostPort = await host.start();
   registerHost(hostPort, project);
 
+  // A reload is not the end of a review. If this window's project still has a round
+  // open, put the form back: the panel is the human's only way to answer, and only
+  // the agent can ask for it to be opened again. Deliberately not awaited — a git
+  // diff must not hold up activation, and a failure here must not break the window.
+  if (project) void host.restore(project).catch(() => undefined);
+
   context.subscriptions.push(
     {
       dispose: () => {
         if (hostPort !== undefined) unregisterHost(hostPort);
       },
     },
-    // The form is ephemeral: it must appear only when the loop starts a review,
-    // never get restored by VS Code on window reload. Drop any rehydrated panel.
+    // VS Code rehydrates a panel as an empty shell with no round behind it, so its
+    // restore is worse than none. Drop it; `host.restore` above puts a real form
+    // back when — and only when — there is an open round to show.
     vscode.window.registerWebviewPanelSerializer("revizorroReview", {
       deserializeWebviewPanel(panel: vscode.WebviewPanel): Thenable<void> {
         panel.dispose();

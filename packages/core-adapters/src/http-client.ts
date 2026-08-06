@@ -23,6 +23,21 @@ export function isDeadHostError(err: unknown): boolean {
   return typeof code === "string" && DEAD_HOST_CODES.has(code);
 }
 
+/**
+ * Codes that mean the connection was up before it broke — so the window may well
+ * have read the request, and any push it carried may already be persisted.
+ *
+ * `ECONNREFUSED` and friends are the opposite: nothing was ever delivered. The
+ * distinction decides whether a retry may repeat a push, because replaying one
+ * that landed duplicates the agent's replies in the human's threads.
+ */
+const DELIVERED_CODES = new Set(["ECONNRESET", "ECONNABORTED", "EPIPE", "ETIMEDOUT"]);
+
+export function mayHaveBeenDelivered(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null | undefined)?.code;
+  return typeof code === "string" && DELIVERED_CODES.has(code);
+}
+
 export class HttpReviewClient implements ReviewTransport {
   constructor(
     private readonly port: number,

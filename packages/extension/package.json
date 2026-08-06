@@ -3,7 +3,7 @@
   "displayName": "Revizorro",
   "description": "Review what your AI agent wrote before it is committed — a GitHub-PR-grade form over your worktree diff, with inline threads, Ask-agent and approve/request-changes. Nothing is pushed.",
   "publisher": "artk0de",
-  "version": "0.0.36",
+  "version": "0.0.41",
   "type": "module",
   "main": "./dist/extension.cjs",
   "icon": "icon.png",

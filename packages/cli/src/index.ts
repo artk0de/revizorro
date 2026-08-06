@@ -1,4 +1,5 @@
 export * from "./main.js";
+export * from "./reconnect.js";
 export * from "./resolve-worktree.js";
 export type * from "./update/types.js";
 export * from "./update/run-update.js";
