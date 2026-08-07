@@ -80,7 +80,17 @@ export class ReviewForm {
     void vscode.commands.executeCommand("workbench.action.closePanel");
   }
 
-  /** Bring the terminal back, without conjuring one that never existed. */
+  /**
+   * Bring the terminal back, without conjuring one that never existed.
+   *
+   * This restores whenever a terminal exists, which is not quite "restore it if it
+   * was on screen before" — VS Code exposes no read of panel visibility. The
+   * internal `panelVisible` context key is usable only from `when` clauses in
+   * package.json, and a WebviewView's own `visible` reports that VIEW, not the
+   * container, so a panel sitting on the Terminal tab would report hidden. Tracked
+   * upstream as microsoft/vscode#321409; when that lands, gate this on the real
+   * pre-review state.
+   */
   private restoreTerminal(): void {
     if (vscode.window.terminals.length === 0) return;
     void vscode.commands.executeCommand("workbench.action.terminal.focus");
