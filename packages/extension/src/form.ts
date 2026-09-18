@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { SessionState } from "@revizorro/protocol";
 import type { DiffFile } from "@revizorro/core";
 import type { ReviewHost } from "./host.js";
+import { REVIEW_TAB_ICON, reviewTabTitle } from "./review-tab.js";
 
 /**
  * Self-contained webview review form (GitHub-PR-style): renders the full diff
@@ -33,6 +34,8 @@ export class ReviewForm {
   /** Render an update into the EXISTING panel — never resurrects a closed form. */
   render(state: SessionState | null, diff: DiffFile[]): void {
     if (!this.panel || !state) return;
+    // The same panel lives across rounds, so the tab follows the round it shows.
+    this.panel.title = reviewTabTitle(state.round);
     const files = diff.map((d) => ({
       path: d.path,
       oldPath: d.oldPath,
@@ -100,12 +103,17 @@ export class ReviewForm {
     if (this.panel) return;
     this.panel = vscode.window.createWebviewPanel(
       "revizorroReview",
-      "revizorro review",
+      // render() puts the round in right after; this only shows if it never can.
+      "Code Review",
       vscode.ViewColumn.Active,
       // enableFindWidget gives the form VS Code's own Cmd/Ctrl+F over the rendered
       // diff — searching a long review by eye is the alternative.
       { enableScripts: true, retainContextWhenHidden: true, enableFindWidget: true },
     );
+    this.panel.iconPath = {
+      light: vscode.Uri.file(join(this.mediaDir, REVIEW_TAB_ICON.light)),
+      dark: vscode.Uri.file(join(this.mediaDir, REVIEW_TAB_ICON.dark)),
+    };
     const html = readFileSync(join(this.mediaDir, "review.html"), "utf8");
     const js = readFileSync(join(this.mediaDir, "webview.js"), "utf8").replace(
       /<\/script>/g,

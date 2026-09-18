@@ -1,5 +1,6 @@
 # What ships in the .vsix: dist/extension.cjs, media/review.html,
-# media/webview.js (the esbuild bundle), the icon, README, CHANGELOG, LICENSE.
+# media/webview.js (the esbuild bundle), the icon, the tab icons
+# (media/tab-icon-*.png), README, CHANGELOG, LICENSE.
 # Everything below is a build input — the bundles already inline it.
 src/**
 tests/**
