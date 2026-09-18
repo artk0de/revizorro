@@ -370,7 +370,10 @@
         user-select: none;
         flex: none;
       }
-      .ln .txt { flex: 1; padding-right: 0.5em; }
+      /* Code soft-wraps, as in split. Under `pre` a long line ran past its row: the
+         add/del tint and an open composer stayed viewport-wide while the text
+         scrolled on without them. min-width:0 lets the flex item shrink to wrap. */
+      .ln .txt { flex: 1; min-width: 0; padding-right: 0.5em; white-space: pre-wrap; overflow-wrap: anywhere; }
       .ln .no.pick { cursor: pointer; }
       .ln .no.pick:hover { text-decoration: underline; opacity: 0.9; }
       .ln.sel { background: var(--vscode-editor-selectionBackground, rgba(120, 150, 255, 0.25)); }
@@ -380,7 +383,13 @@
       .ln.del { background: rgba(220, 90, 90, 0.13); }
       .ln.del .txt::before { content: "−"; opacity: 0.5; }
       .ln.ctx .txt::before { content: " "; }
-      .ln.hunk { background: var(--vscode-editorGroupHeader-tabsBackground); opacity: 0.7; padding-left: 0.5em; }
+      .ln.hunk {
+        background: var(--vscode-editorGroupHeader-tabsBackground);
+        opacity: 0.7;
+        padding-left: 0.5em;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
       /* "expand context" control shown in the gaps between diff hunks */
       .expand-row {
         padding: 0.15rem 0.7rem;
