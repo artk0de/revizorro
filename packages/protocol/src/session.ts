@@ -30,6 +30,12 @@ export const SessionState = z.object({
   verdictDelivered: z.boolean().default(false),
   /** When an undelivered verdict started waiting (ms epoch) — replay expires. */
   verdictPendingSince: z.number().optional(),
+  /**
+   * When this round opened (ms epoch) — the one place its duration is measured from,
+   * so a reload or a re-opened form does not restart the clock. Optional: a session
+   * saved before it was recorded still parses, and is stamped on its next round.
+   */
+  openedAt: z.number().optional(),
   /** The scope this round was opened with; a different one is a different review. */
   scope: ReviewScope.default({ stagedOnly: false, baseRef: "" }),
   /** The human closed the form without deciding — this round is over, unfinished. */

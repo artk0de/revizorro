@@ -12,9 +12,16 @@ describe("runReview", () => {
       worktreeId: "wt1",
       repoRoot: "/repo",
       readPush: () => ({ replies: [], comments: [] }),
+      now: () => 0,
     });
     expect(r.exitCode).toBe(0);
-    expect(JSON.parse(r.stdout)).toEqual({ type: "decision", verdict: "approved", comments: [] });
+    expect(JSON.parse(r.stdout)).toEqual({
+      type: "decision",
+      verdict: "approved",
+      comments: [],
+      waitedMs: 0,
+      waited: "0.0s",
+    });
   });
   it("forwards a closed event so the agent knows the human left without a verdict", async () => {
     const r = await runReview(["review", "--worktree"], {
@@ -22,9 +29,10 @@ describe("runReview", () => {
       worktreeId: "wt1",
       repoRoot: "/repo",
       readPush: () => ({ replies: [], comments: [] }),
+      now: () => 0,
     });
     expect(r.exitCode).toBe(0);
-    expect(JSON.parse(r.stdout)).toEqual({ type: "closed" });
+    expect(JSON.parse(r.stdout)).toEqual({ type: "closed", waitedMs: 0, waited: "0.0s" });
   });
   it("passes the push payload through on `--push`", async () => {
     let received: PushPayload | undefined;
@@ -154,6 +162,77 @@ describe("runReview", () => {
     });
 
     expect(r.stdout).toContain("revizorro update");
+  });
+  // Every one of these exists so the agent reports a time it was told, rather than
+  // one it measured around the command or added up from heartbeats itself.
+  it("stamps how long the call blocked, so the agent never times the command itself", async () => {
+    let clock = 1_000;
+    const transport: ReviewTransport = {
+      review: async () => {
+        clock += 187_204;
+        return { type: "decision", verdict: "approved", comments: [] };
+      },
+    };
+    const r = await runReview(["review", "--worktree"], {
+      transport,
+      worktreeId: "wt1",
+      repoRoot: "/repo",
+      readPush: () => ({ replies: [], comments: [] }),
+      now: () => clock,
+    });
+    expect(JSON.parse(r.stdout)).toMatchObject({ waitedMs: 187_204, waited: "3m 7s" });
+  });
+  it("spells out the round duration the host reported, so nobody sums up idle heartbeats", async () => {
+    const r = await runReview(["review"], {
+      transport: fakeTransport({ type: "idle", reviewMs: 1_284_000 }),
+      worktreeId: "wt1",
+      repoRoot: "/repo",
+      readPush: () => ({ replies: [], comments: [] }),
+      now: () => 0,
+    });
+    expect(JSON.parse(r.stdout)).toMatchObject({ reviewMs: 1_284_000, reviewFor: "21m 24s" });
+  });
+  it("spells out the inactivity in the units the ten-minute idle policy is written in", async () => {
+    const r = await runReview(["review"], {
+      transport: fakeTransport({ type: "idle", inactiveForMs: 754_000 }),
+      worktreeId: "wt1",
+      repoRoot: "/repo",
+      readPush: () => ({ replies: [], comments: [] }),
+      now: () => 0,
+    });
+    expect(JSON.parse(r.stdout)).toMatchObject({ inactiveForMs: 754_000, inactiveFor: "12m 34s" });
+  });
+  // `held` says an event came out of the queue; it does not say whether that
+  // happened seconds ago or a round ago. Its age does, and reading it must not
+  // cost the agent a subtraction it can get wrong.
+  it("spells out how old the event is, so a replay from an earlier round is visible", async () => {
+    const r = await runReview(["review"], {
+      transport: fakeTransport({
+        type: "decision",
+        verdict: "approved",
+        comments: [],
+        at: 1_000,
+        held: true,
+      }),
+      worktreeId: "wt1",
+      repoRoot: "/repo",
+      readPush: () => ({ replies: [], comments: [] }),
+      now: () => 2_461_000,
+    });
+    expect(JSON.parse(r.stdout)).toMatchObject({ ageMs: 2_460_000, age: "41m" });
+  });
+  it("spells out nothing the host did not measure, so an older host still parses", async () => {
+    const r = await runReview(["review"], {
+      transport: fakeTransport({ type: "idle" }),
+      worktreeId: "wt1",
+      repoRoot: "/repo",
+      readPush: () => ({ replies: [], comments: [] }),
+      now: () => 0,
+    });
+    const event = JSON.parse(r.stdout) as Record<string, unknown>;
+    expect(event.reviewFor).toBeUndefined();
+    expect(event.inactiveFor).toBeUndefined();
+    expect(event.age).toBeUndefined();
   });
   it("exits 2 on an unknown command", async () => {
     const r = await runReview(["bogus"], {

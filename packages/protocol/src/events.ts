@@ -10,14 +10,29 @@ const threadAnchor = {
 };
 
 /**
- * Stamped on every event so the agent can judge an event on its own, without
- * guessing from call timings: `at` is when the human acted, `held` says the event
- * waited in the queue because the agent was away. A verdict arriving instantly is
- * normal when it was held — it is fresh, just delivered late.
+ * Stamped on every event so the agent can judge it without measuring anything of
+ * its own: `at` is when the human acted, `held` says the event waited in the queue
+ * because the agent was away. A verdict arriving instantly is normal when it was
+ * held — it is fresh, just delivered late.
+ *
+ * The durations are the numbers an agent would otherwise time around the command or
+ * add up from heartbeats: `reviewMs` is how long the round has been running (the
+ * host knows, from the round's own start), `waitedMs` is how long the delivering
+ * call blocked, and `ageMs` is how long ago the human acted — the one that
+ * separates a queued verdict handed over seconds later from a replay of an earlier
+ * round, which `held` alone cannot. The CLI knows the last two, having made the
+ * call. `reviewFor`, `waited` and `age` are those numbers spelled for a human, so
+ * quoting one costs no arithmetic.
  */
 const provenance = {
   at: z.number().optional(),
   held: z.boolean().optional(),
+  reviewMs: z.number().optional(),
+  reviewFor: z.string().optional(),
+  waitedMs: z.number().optional(),
+  waited: z.string().optional(),
+  ageMs: z.number().optional(),
+  age: z.string().optional(),
 };
 
 export const QuestionEvent = z.object({
@@ -59,6 +74,8 @@ export const IdleEvent = z.object({
    * the skill. Optional so an older host paired with a newer CLI still parses.
    */
   inactiveForMs: z.number().optional(),
+  /** The same measurement spelled for a human — the units the idle policy is written in. */
+  inactiveFor: z.string().optional(),
   ...provenance,
 });
 // The human closed the review form without a verdict — the agent must ask the

@@ -71,6 +71,11 @@ export class ReviewHost {
     // A timed-out poll answers with a snapshot of the live review, so the agent can
     // see the round is open and simply re-arm instead of diagnosing a healthy form.
     this.events.onIdle(() => ({ type: "idle", ...(this.snapshot ? { review: this.snapshot } : {}) }));
+    // Every event carries how long the round has been going, so the agent reports a
+    // duration it was told instead of adding up how long each poll happened to block.
+    this.events.onRoundOpenedAt((wt) =>
+      this.current?.worktreeId === wt ? this.roundOpenedAt : undefined,
+    );
     // A long review outlives the CLI call that opened it. Re-render when an agent
     // starts or stops listening so the form can say which.
     this.events.onWaitingChanged((wt) => {
@@ -104,7 +109,11 @@ export class ReviewHost {
     this.openForm(s, diff);
   }
 
+  /** When the round on screen opened, read synchronously when an event goes out. */
+  private roundOpenedAt?: number;
+
   private remember(s: SessionState, diff: DiffFile[]): void {
+    this.roundOpenedAt = s.openedAt;
     const paths = new Set(diff.map((f) => f.path));
     this.snapshot = {
       round: s.round,
@@ -313,7 +322,7 @@ export class ReviewHost {
     this.pending.clear();
     const prev = await c.store.load(c.worktreeId);
     c.lastDiff = await c.diff.diff(c.worktreeId);
-    const s = startRound(prev, c.worktreeId, c.lastDiff, this.scopeOf(c));
+    const s = startRound(prev, c.worktreeId, c.lastDiff, this.scopeOf(c), Date.now());
     await c.store.save(s);
     return s;
   }

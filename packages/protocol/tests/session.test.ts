@@ -43,4 +43,9 @@ describe("SessionState", () => {
       }),
     ).toThrow();
   });
+  it("records when the round opened, and parses a session saved before it did", () => {
+    const base = { worktreeId: "wt1", round: 1, status: "open" as const, files: {}, threads: [] };
+    expect(SessionState.parse({ ...base, openedAt: 1_000 }).openedAt).toBe(1_000);
+    expect(SessionState.parse(base).openedAt).toBeUndefined();
+  });
 });

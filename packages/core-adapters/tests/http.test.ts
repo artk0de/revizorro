@@ -318,3 +318,53 @@ describe("event provenance", () => {
     expect(await new HttpReviewClient(port).review("wt1", "/repo")).toMatchObject({ type: "idle" });
   });
 });
+
+// How long the round has been running belongs on every event, whichever path
+// delivers it — otherwise the agent reconstructs it from poll timings, which is
+// exactly the arithmetic it keeps getting wrong.
+describe("how long the round has been running", () => {
+  const openedFiveSecondsAgo = (): number => Date.now() - 5_000;
+
+  it("stamps it on an event handed straight to a waiting agent", async () => {
+    host = new HttpReviewHost();
+    const port = await host.start();
+    host.onReview(() => undefined);
+    host.onRoundOpenedAt(() => openedFiveSecondsAgo());
+    const pending = new HttpReviewClient(port).review("wt1", "/repo");
+    await new Promise((r) => setTimeout(r, 20));
+    host.emit("wt1", { type: "decision", verdict: "approved", comments: [] });
+    const event = await pending;
+    expect(event.reviewMs).toBeGreaterThanOrEqual(5_000);
+  });
+
+  it("stamps it on an event that waited in the queue, where the call itself blocked for nothing", async () => {
+    host = new HttpReviewHost({ pollTimeoutMs: 5_000 });
+    const port = await host.start();
+    host.onReview(() => undefined);
+    host.onRoundOpenedAt(() => openedFiveSecondsAgo());
+    host.emit("wt1", { type: "decision", verdict: "approved", comments: [] }, true);
+    await new Promise((r) => setTimeout(r, 40));
+    const event = await new HttpReviewClient(port).review("wt1", "/repo");
+    expect(event).toMatchObject({ held: true });
+    expect(event.reviewMs).toBeGreaterThanOrEqual(5_000);
+  });
+
+  it("stamps it on the idle answer a timed-out poll gets, which is where a long read shows up", async () => {
+    host = new HttpReviewHost({ pollTimeoutMs: 120 });
+    const port = await host.start();
+    host.onReview(() => undefined);
+    host.onRoundOpenedAt(() => openedFiveSecondsAgo());
+    const event = await new HttpReviewClient(port).review("wt1", "/repo");
+    expect(event).toMatchObject({ type: "idle" });
+    expect(event.reviewMs).toBeGreaterThanOrEqual(5_000);
+  });
+
+  it("leaves it off when no round start is known, rather than reporting a round that began at the epoch", async () => {
+    host = new HttpReviewHost({ pollTimeoutMs: 120 });
+    const port = await host.start();
+    host.onReview(() => undefined);
+    host.onRoundOpenedAt(() => undefined);
+    const event = await new HttpReviewClient(port).review("wt1", "/repo");
+    expect(event.reviewMs).toBeUndefined();
+  });
+});

@@ -35,7 +35,9 @@ windows are skipped and cleaned up automatically.
    revizorro review --worktree
    ```
 
-   It blocks. When it returns, parse the single JSON event from stdout.
+   It blocks. When it returns, parse the single JSON event from stdout. The event
+   reports its own timings — how long the call waited, and how long the round has
+   been open — so there is never a reason to time the command yourself.
 
    **Reviewing before a commit — the default.** When the work is ready to commit,
    stage exactly what belongs in that commit and review the staged change first:
@@ -95,17 +97,19 @@ windows are skipped and cleaned up automatically.
      already showing, while `--worktree` would widen a staged-only review to the
      whole branch.
 
-     `idle` carries `inactiveForMs` — how long the form has gone untouched.
-     Reading, expanding context and marking files viewed emit no events, so this
-     number, not the number of `idle` events, is what tells you where the human
-     is. Wait a MINIMUM of ten minutes of it before reading anything into silence:
+     `idle` carries `inactiveForMs`, and `inactiveFor` — the same span already
+     spelled out — for how long the form has gone untouched. Reading, expanding
+     context and marking files viewed emit no events, so this number, not the
+     number of `idle` events, is what tells you where the human is. Wait a
+     MINIMUM of ten minutes of it before reading anything into silence:
 
      - **Under ten minutes: re-arm silently.** Say nothing to the user, do not
        check whether the form opened, do not inspect the host registry, do not
        restart anything. A careful reader is quiet for long stretches; that is
        what reviewing looks like.
      - **Ten minutes or more: tell the user ONCE**, in their language, that the
-       form has not been touched for that long — then keep re-arming silently.
+       form has not been touched for that long — quote `inactiveFor` rather than
+       converting milliseconds — then keep re-arming silently.
        Repeat it only if activity resumes and then stops again. Never end the
        loop: Approve still unblocks you the moment they come back, and an
        abandoned loop would leave them approving into a form nobody is listening
@@ -233,11 +237,21 @@ Write every answer first, then push once.
 - Re-arm with a bare `revizorro review`. Scope flags belong on the call that
   STARTS a review; repeating `--worktree` on every loop would widen a staged-only
   review to the whole branch.
-- Judge an event by what it says, not by how long the call took. Every event
-  carries `at` (when the human acted) and, when it waited in the queue while you
-  were away, `held: true`. A verdict that arrives the instant you call is normal
-  if `held` is set — it is a real decision made moments ago and handed over now,
-  not a stale replay. Trust it and act; do not ask the user to confirm it.
+- **Every duration is reported to you — never measure one yourself.** Each event
+  carries three, already spelled out beside their milliseconds: `waited` (how long
+  that call blocked), `age` (how long ago the human acted) and, once a round is
+  open, `reviewFor` (how long the human has been on this round, measured from the
+  round's own start). Quote those. Do NOT time the command, do NOT subtract `at`
+  from the clock, and do NOT add up `idle` events to estimate how long the review
+  has run — a sum of poll ceilings is not a measurement.
+- Judge an event by what it says, not by how long the call took. `held: true` says
+  the event waited in the queue while you were away, and `age` says how long it
+  sat there. A verdict whose `waited` is a fraction of a second is normal when
+  `held` is set and `age` is small — a real decision handed over the moment you
+  came back, not a stale replay. Trust it and act; do not ask the user to confirm
+  it. An `age` of many minutes on a verdict you did not just ask for is the one
+  case worth a second look: that is a replay from an earlier round rather than a
+  decision about the diff in front of you.
 - Answer all open threads in a single `--push` (see Push-file shape), never one
   call per thread.
 - `revizorro review --check` is a cheap preflight: exit 10 means the diff has

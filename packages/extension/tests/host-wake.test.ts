@@ -158,4 +158,13 @@ describe("what wakes a blocked agent", () => {
     expect(event.type).toBe("decision");
     expect(event.comments.map((c) => c.body)).toContain("reads oddly");
   });
+
+  // The broker can only report a duration the round itself recorded, so the wiring
+  // from the persisted session to the event is what this covers.
+  it("tells the agent how long the round has been running when it hands over a verdict", async () => {
+    const { poll } = await openRound();
+    await host.approve();
+    const event = (await poll) as { reviewMs?: number };
+    expect(event.reviewMs).toBeGreaterThanOrEqual(0);
+  });
 });
