@@ -52,7 +52,9 @@ describe("markMatches", () => {
   });
 
   it("searches a collapsed file, which is the point of searching at all", () => {
-    html(`<div class="file"><div class="diff" style="display:none"><span>needle</span></div></div>`);
+    html(
+      `<div class="file"><div class="diff" style="display:none"><span>needle</span></div></div>`,
+    );
     expect(markMatches(root(), "needle")).toHaveLength(1);
   });
 

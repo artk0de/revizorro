@@ -102,7 +102,11 @@ export function withExpansions(
     const key = `${file.path}#${id}`;
     const revealed = Math.min(size, revealedByGap.get(key) ?? 0);
     const hidden = size - revealed;
-    const control = (): Line => ({ kind: "expand", text: "", gap: { file: file.path, key, up: hidden } });
+    const control = (): Line => ({
+      kind: "expand",
+      text: "",
+      gap: { file: file.path, key, up: hidden },
+    });
     if (grow === "up") {
       if (hidden > 0) out.push(control());
       for (let n = endNew - revealed + 1; n <= endNew; n++) out.push(ctxLine(n, offset));

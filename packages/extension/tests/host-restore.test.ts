@@ -40,7 +40,7 @@ const reload = async (): Promise<void> => {
   shown = [];
   reopened = new ReviewHost(
     () => undefined,
-    (s: { round: number; status: string }) => {
+    (_session, s: { round: number; status: string }) => {
       shown.push({ round: s.round, status: s.status });
     },
   );
@@ -84,7 +84,7 @@ describe("restoring the form after a window reload", () => {
 
   it("stays quiet when the last round was already decided, so a finished review does not reappear", async () => {
     await openRound();
-    await opener?.requestChanges();
+    await opener.review(worktreeIdFor(repo))?.requestChanges();
 
     await reload();
 

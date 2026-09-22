@@ -87,6 +87,33 @@ describe("round numbering", () => {
   });
 });
 
+// The round carries its own start so its duration is read off one number instead
+// of being reconstructed from how long each poll happened to block.
+describe("when the round opened", () => {
+  const scope = { stagedOnly: false, baseRef: "" };
+  const diff = [{ path: "a.ts", contentHash: "h1" }];
+
+  it("stamps the opening time on a first round", () => {
+    expect(startRound(null, "wt1", diff, scope, 1_000).openedAt).toBe(1_000);
+  });
+
+  it("keeps it while the round runs, so re-opening the form does not reset the clock", () => {
+    const open = startRound(null, "wt1", diff, scope, 1_000);
+    expect(startRound(open, "wt1", diff, scope, 9_000).openedAt).toBe(1_000);
+  });
+
+  it("starts it over on the next round, which is a fresh pass of judgement", () => {
+    const decided = applyDecision(startRound(null, "wt1", diff, scope, 1_000), "changes_requested");
+    expect(startRound(decided, "wt1", diff, scope, 9_000).openedAt).toBe(9_000);
+  });
+
+  it("stamps a round inherited from a session saved before it was recorded", () => {
+    const old = startRound(null, "wt1", diff, scope, 1_000);
+    delete old.openedAt;
+    expect(startRound(old, "wt1", diff, scope, 9_000).openedAt).toBe(9_000);
+  });
+});
+
 describe("review scope", () => {
   const staged = { stagedOnly: true, baseRef: "" };
   const whole = { stagedOnly: false, baseRef: "" };

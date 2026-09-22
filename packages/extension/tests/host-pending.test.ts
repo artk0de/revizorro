@@ -5,12 +5,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HttpReviewClient } from "@revizorro/core-adapters";
 import { ReviewHost } from "../src/host.js";
+import type { ReviewSession } from "../src/session.js";
 
 const git = (cwd: string, ...a: string[]): string =>
   execFileSync("git", a, { cwd, encoding: "utf8" });
 
 let repo: string;
 let host: ReviewHost;
+
+/** The review under test. Every test in this file drives the one worktree, "wt1". */
+const review = (): ReviewSession => {
+  const s = host.review("wt1");
+  if (!s) throw new Error("no review is open for wt1");
+  return s;
+};
 
 const openRound = async (): Promise<{ poll: Promise<unknown>; port: number }> => {
   let formIsUp: () => void = () => undefined;
@@ -51,31 +59,31 @@ afterEach(async () => {
 describe("what the agent is said to be answering", () => {
   it("forgets a question the human resolved instead of waiting for", async () => {
     const { poll } = await openRound();
-    await host.addHumanComment("a.ts", line, "why this?", true);
+    await review().addHumanComment("a.ts", line, "why this?", true);
     await poll.catch(() => undefined);
-    expect(host.isPending("t1")).toBe(true);
+    expect(review().isPending("t1")).toBe(true);
 
     // The human gave up waiting and closed the thread. Nothing can answer it now.
-    await host.resolveThread("t1", true);
-    expect(host.isPending("t1")).toBe(false);
+    await review().resolveThread("t1", true);
+    expect(review().isPending("t1")).toBe(false);
   });
 
   it("counts only the threads this clarify actually handed over", async () => {
     const { poll } = await openRound();
-    await host.addHumanComment("a.ts", line, "first question", true);
+    await review().addHumanComment("a.ts", line, "first question", true);
     await poll.catch(() => undefined);
-    await host.addHumanComment("a.ts", line, "second question", true);
+    await review().addHumanComment("a.ts", line, "second question", true);
     // Neither was answered — the agent went off to fix code. Both get closed.
-    await host.resolveThread("t1", true);
-    await host.resolveThread("t2", true);
+    await review().resolveThread("t1", true);
+    await review().resolveThread("t2", true);
 
-    await host.addHumanComment("a.ts", line, "the one open comment", false);
-    await host.clarify();
+    await review().addHumanComment("a.ts", line, "the one open comment", false);
+    await review().clarify();
 
     expect({
-      t1: host.isPending("t1"),
-      t2: host.isPending("t2"),
-      t3: host.isPending("t3"),
+      t1: review().isPending("t1"),
+      t2: review().isPending("t2"),
+      t3: review().isPending("t3"),
     }).toEqual({ t1: false, t2: false, t3: true });
   });
 });

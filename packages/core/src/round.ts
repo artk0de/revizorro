@@ -8,6 +8,7 @@ export function startRound(
   worktreeId: string,
   diff: DiffFile[],
   scope: ReviewScope = WHOLE_BRANCH,
+  now: number = Date.now(),
 ): SessionState {
   // A round is one pass of human judgement, so it advances only once that pass
   // ended: a verdict, or the human walking out. Re-opening the form — a scope
@@ -23,6 +24,10 @@ export function startRound(
     files,
     threads,
     verdictDelivered: false,
+    // The round it belongs to is the unit being timed, so a continuing round keeps
+    // the start it already had — every re-open of the same pass would otherwise
+    // report a review that just began.
+    openedAt: ended ? now : (prev?.openedAt ?? now),
     scope,
     interrupted: false,
   };

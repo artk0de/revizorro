@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HttpReviewClient } from "@revizorro/core-adapters";
 import { ReviewHost } from "../src/host.js";
+import type { ReviewSession } from "../src/session.js";
 
 const git = (cwd: string, ...a: string[]): string =>
   execFileSync("git", a, { cwd, encoding: "utf8" });
@@ -17,6 +18,13 @@ const settle = async (p: Promise<unknown>, ms: number): Promise<"settled" | "pen
 
 let repo: string;
 let host: ReviewHost;
+
+/** The review under test. Every test in this file drives the one worktree, "wt1". */
+const review = (): ReviewSession => {
+  const s = host.review("wt1");
+  if (!s) throw new Error("no review is open for wt1");
+  return s;
+};
 
 /**
  * Open a round and wait for the form to actually be up. Acting before that is a
@@ -78,7 +86,7 @@ describe("a session belongs to its branch", () => {
     let sawOpen: () => void = () => undefined;
     const capture =
       (how: string) =>
-      (s: { round: number; status: string; threads: unknown[] }): void => {
+      (_session: unknown, s: { round: number; status: string; threads: unknown[] }): void => {
         seen.push({ how, round: s.round, status: s.status, threads: s.threads });
         if (how === "open") sawOpen();
       };
@@ -87,8 +95,13 @@ describe("a session belongs to its branch", () => {
     const client = new HttpReviewClient(port);
 
     await client.review("wt1", repo);
-    await host.addHumanComment("a.ts", { startLine: 1, endLine: 1 }, "note on the old branch", false);
-    await host.requestChanges();
+    await review().addHumanComment(
+      "a.ts",
+      { startLine: 1, endLine: 1 },
+      "note on the old branch",
+      false,
+    );
+    await review().requestChanges();
 
     git(repo, "checkout", "-qb", "other");
     writeFileSync(join(repo, "a.ts"), "export const a = 3;\n");
@@ -117,13 +130,13 @@ describe("a session belongs to its branch", () => {
 describe("what wakes a blocked agent", () => {
   it("leaves the agent blocked when the human writes a passive comment", async () => {
     const { poll } = await openRound();
-    await host.addHumanComment("a.ts", { startLine: 1, endLine: 1 }, "reads oddly", false);
+    await review().addHumanComment("a.ts", { startLine: 1, endLine: 1 }, "reads oddly", false);
     expect(await settle(poll, 400)).toBe("pending");
   });
 
   it("knows the branch under review once a round is open", async () => {
     await openRound();
-    expect(host.branch()).toBe("feature");
+    expect(review().branch()).toBe("feature");
   });
 
   // The skill tells the agent to push its fix replies right after a verdict. That
@@ -133,7 +146,7 @@ describe("what wakes a blocked agent", () => {
   it("answers a push that lands on an already-decided round", async () => {
     process.env.REVIZORRO_POLL_TIMEOUT_MS = "4000";
     const { poll, port } = await openRound();
-    await host.requestChanges();
+    await review().requestChanges();
     await poll;
     const started = Date.now();
     const event = await new HttpReviewClient(port).review("wt1", repo, {
@@ -146,16 +159,25 @@ describe("what wakes a blocked agent", () => {
 
   it("wakes the agent when the human uses Ask agent", async () => {
     const { poll } = await openRound();
-    await host.addHumanComment("a.ts", { startLine: 1, endLine: 1 }, "why this?", true);
+    await review().addHumanComment("a.ts", { startLine: 1, endLine: 1 }, "why this?", true);
     expect(await poll).toMatchObject({ type: "question", body: "why this?" });
   });
 
   it("still hands a passive comment to the agent with the verdict", async () => {
     const { poll } = await openRound();
-    await host.addHumanComment("a.ts", { startLine: 1, endLine: 1 }, "reads oddly", false);
-    await host.requestChanges();
+    await review().addHumanComment("a.ts", { startLine: 1, endLine: 1 }, "reads oddly", false);
+    await review().requestChanges();
     const event = (await poll) as { type: string; comments: { body: string }[] };
     expect(event.type).toBe("decision");
     expect(event.comments.map((c) => c.body)).toContain("reads oddly");
+  });
+
+  // The broker can only report a duration the round itself recorded, so the wiring
+  // from the persisted session to the event is what this covers.
+  it("tells the agent how long the round has been running when it hands over a verdict", async () => {
+    const { poll } = await openRound();
+    await review().approve();
+    const event = (await poll) as { reviewMs?: number };
+    expect(event.reviewMs).toBeGreaterThanOrEqual(0);
   });
 });

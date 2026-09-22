@@ -28,10 +28,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const mediaDir = join(context.extensionPath, "media");
 
   host = new ReviewHost(
-    (state, diff) => form?.render(state, diff),
-    (state, diff) => form?.open(state, diff),
+    (session, state, diff) => form?.render(session, state, diff),
+    (session, state, diff) => form?.open(session, state, diff),
   );
-  form = new ReviewForm(host, mediaDir);
+  form = new ReviewForm(mediaDir);
   hostPort = await host.start();
   registerHost(hostPort, project);
 
@@ -56,9 +56,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return Promise.resolve();
       },
     }),
-    vscode.commands.registerCommand("revizorro.approve", () => host?.approve()),
-    vscode.commands.registerCommand("revizorro.requestChanges", () => void host?.requestChanges()),
-    vscode.commands.registerCommand("revizorro.clarify", () => void host?.clarify()),
+    // A command acts on the review whose tab is in front, not on "the current" one:
+    // this window may be running several.
+    vscode.commands.registerCommand(
+      "revizorro.approve",
+      () => void form?.activeReview()?.approve(),
+    ),
+    vscode.commands.registerCommand(
+      "revizorro.requestChanges",
+      () => void form?.activeReview()?.requestChanges(),
+    ),
+    vscode.commands.registerCommand(
+      "revizorro.clarify",
+      () => void form?.activeReview()?.clarify(),
+    ),
     { dispose: () => void host?.stop() },
     { dispose: () => form?.dispose() },
   );

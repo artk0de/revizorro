@@ -177,8 +177,12 @@ describe("tree hotkey", () => {
   });
 
   it("ignores the key when a modifier is held, leaving editor shortcuts alone", () => {
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "t", ctrlKey: true, bubbles: true }));
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "t", metaKey: true, bubbles: true }));
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "t", ctrlKey: true, bubbles: true }),
+    );
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "t", metaKey: true, bubbles: true }),
+    );
     expect(isTreeVisible()).toBe(true);
   });
 

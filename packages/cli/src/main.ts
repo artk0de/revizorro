@@ -1,5 +1,7 @@
 import type { ReviewTransport, DiffProvider } from "@revizorro/core";
-import type { PushPayload } from "@revizorro/protocol";
+import type { PushPayload, ReviewEvent } from "@revizorro/protocol";
+
+import { formatDuration } from "./duration.js";
 
 export interface CliDeps {
   transport: ReviewTransport;
@@ -8,6 +10,28 @@ export interface CliDeps {
   readPush: (path: string) => PushPayload;
   /** Git-side diff source for the `--check` preflight; no VS Code host needed. */
   diff?: DiffProvider;
+  /** Injected so the measured wait is assertable. */
+  now?: () => number;
+}
+
+/**
+ * Report every duration on the event, so the agent quotes numbers instead of
+ * producing them. Two are the CLI's own measurements, which nothing else can see:
+ * how long this call blocked, and how long ago the human acted. The rest are the
+ * host's numbers spelled for a human, saving an arithmetic step that has no business
+ * being in the middle of a review.
+ */
+function withDurations(event: ReviewEvent, waitedMs: number, deliveredAt: number): ReviewEvent {
+  const age = event.at === undefined ? undefined : deliveredAt - event.at;
+  const timings = {
+    waitedMs,
+    waited: formatDuration(waitedMs),
+    ...(age === undefined ? {} : { ageMs: age, age: formatDuration(age) }),
+    ...(event.reviewMs === undefined ? {} : { reviewFor: formatDuration(event.reviewMs) }),
+  };
+  return event.type === "idle" && event.inactiveForMs !== undefined
+    ? { ...event, ...timings, inactiveFor: formatDuration(event.inactiveForMs) }
+    : { ...event, ...timings };
 }
 
 /** `review --check` exit code when the worktree has a diff (mirrors git diff --exit-code convention). */
@@ -52,9 +76,15 @@ export async function runReview(
     : argv.includes("--worktree")
       ? false
       : undefined;
+  const clock = deps.now ?? Date.now;
+  const startedAt = clock();
   const event = await deps.transport.review(deps.worktreeId, deps.repoRoot, push, {
     ...(stagedOnly === undefined ? {} : { stagedOnly }),
     ...(baseIdx >= 0 && argv[baseIdx + 1] ? { baseRef: argv[baseIdx + 1] } : {}),
   });
-  return { stdout: JSON.stringify(event), exitCode: 0 };
+  const deliveredAt = clock();
+  return {
+    stdout: JSON.stringify(withDurations(event, deliveredAt - startedAt, deliveredAt)),
+    exitCode: 0,
+  };
 }

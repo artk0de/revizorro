@@ -53,4 +53,26 @@ describe("ReviewEvent", () => {
   it("still accepts an idle event without the measurement", () => {
     expect(ReviewEvent.parse({ type: "idle" })).toEqual({ type: "idle" });
   });
+  it("carries both durations a verdict is judged by — the round's, and this call's wait", () => {
+    expect(
+      ReviewEvent.parse({
+        type: "decision",
+        verdict: "approved",
+        reviewMs: 1_284_000,
+        reviewFor: "21m 24s",
+        waitedMs: 187_204,
+        waited: "3m 7s",
+      }),
+    ).toMatchObject({
+      reviewMs: 1_284_000,
+      reviewFor: "21m 24s",
+      waitedMs: 187_204,
+      waited: "3m 7s",
+    });
+  });
+  it("carries the spelled-out inactivity beside the milliseconds it was measured in", () => {
+    expect(
+      ReviewEvent.parse({ type: "idle", inactiveForMs: 754_000, inactiveFor: "12m 34s" }),
+    ).toMatchObject({ inactiveForMs: 754_000, inactiveFor: "12m 34s" });
+  });
 });

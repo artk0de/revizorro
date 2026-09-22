@@ -1,12 +1,6 @@
 import { langFor, hl, renderMarkdown } from "./view/highlight.js";
 import { el, codeSpan, onSubmit, autoGrow } from "./view/dom.js";
-import {
-  parsePatch,
-  withExpansions,
-  LOCKFILE,
-  EXPAND_STEP,
-  type Line,
-} from "./view/patch.js";
+import { parsePatch, withExpansions, LOCKFILE, EXPAND_STEP, type Line } from "./view/patch.js";
 import { setBridge, send } from "./view/bridge.js";
 import { trackActivity } from "./view/activity.js";
 import { renderSummary, renderBranch, renderAgentStatus } from "./view/summary.js";
@@ -85,7 +79,13 @@ let sel: { file: string; start: number; end: number } | null = null;
 // The composer currently open, if any. An incoming agent reply re-renders the
 // whole form; this lets render() reopen the composer (with its draft) instead of
 // silently dropping what the human was typing.
-let activeCompose: { file: string; startLine: number; endLine: number; side: "old" | "new"; snippet?: string } | null = null;
+let activeCompose: {
+  file: string;
+  startLine: number;
+  endLine: number;
+  side: "old" | "new";
+  snippet?: string;
+} | null = null;
 
 function selectLine(file: string, line: number, shift: boolean): void {
   if (shift && sel?.file === file) sel.end = line;
@@ -173,7 +173,8 @@ function inlineBody(f: FileView, lines: Line[], lang: string | null): HTMLElemen
     if (l.newNo !== undefined) row.dataset.line = String(l.newNo);
     row.append(gut, no, codeSpan(l.text, lang));
     body.append(row);
-    const th = l.newNo !== undefined ? byNew[l.newNo] : l.oldNo !== undefined ? byOld[l.oldNo] : undefined;
+    const th =
+      l.newNo !== undefined ? byNew[l.newNo] : l.oldNo !== undefined ? byOld[l.oldNo] : undefined;
     if (th) for (const t of th) body.append(renderThread(t));
   }
   return body;
@@ -207,7 +208,14 @@ function numCell(
 
 // One code cell: highlighted code plus, when the line exists, the comment anchor
 // (file + line + side) so native-selection comments resolve to the right side.
-function codeCell(l: Line | undefined, no: number | undefined, real: boolean, lang: string | null, file: string, side: "old" | "new"): HTMLElement {
+function codeCell(
+  l: Line | undefined,
+  no: number | undefined,
+  real: boolean,
+  lang: string | null,
+  file: string,
+  side: "old" | "new",
+): HTMLElement {
   const cell = el("span", `gcode${real ? ` ${side}` : ""}`);
   if (l) cell.append(codeSpan(l.text, lang));
   if (no !== undefined) {
@@ -221,7 +229,13 @@ function codeCell(l: Line | undefined, no: number | undefined, real: boolean, la
 // Emit one diff line as four grid cells (old #, old code, new #, new code) into a
 // display:contents row wrapper. Both sides carry a gutter + anchor, so comments
 // land on deleted (left) and added/context (right) lines alike.
-function emitLine(grid: HTMLElement, d: Line | undefined, a: Line | undefined, lang: string | null, file: string): void {
+function emitLine(
+  grid: HTMLElement,
+  d: Line | undefined,
+  a: Line | undefined,
+  lang: string | null,
+  file: string,
+): void {
   const wrap = el("div", "srow");
   wrap.append(numCell(d?.oldNo, `gno${d?.kind === "del" ? " del" : ""}`, file, "old", wrap));
   wrap.append(codeCell(d, d?.oldNo, d?.kind === "del", lang, file, "old"));
@@ -481,7 +495,6 @@ function openCompose(
   ta.focus();
 }
 
-
 // Splice hidden context (from the file's current content) into the gaps between
 // hunks, gated by expandedGaps: each gap starts as a clickable "expand" control
 // and reveals EXPAND_STEP more lines per click. Revealed lines are plain context,
@@ -520,7 +533,6 @@ function renamePath(f: FileView): { label: HTMLElement; tag: string } {
   );
   return { label, tag: baseName(f.oldPath) === baseName(f.path) ? "moved" : "renamed" };
 }
-
 
 function renderFile(f: FileView, mode: string): HTMLElement {
   const lineCount = f.patch ? f.patch.split("\n").length : 0;
@@ -619,8 +631,9 @@ function render(): void {
   if (activeCompose) {
     const { file, startLine, endLine, side, snippet } = activeCompose;
     const anchor =
-      document.querySelector(`[data-side="${side}"][data-file="${CSS.escape(file)}"][data-line="${endLine}"]`) ??
-      document.querySelector(`[data-file="${CSS.escape(file)}"][data-line="${endLine}"]`);
+      document.querySelector(
+        `[data-side="${side}"][data-file="${CSS.escape(file)}"][data-line="${endLine}"]`,
+      ) ?? document.querySelector(`[data-file="${CSS.escape(file)}"][data-line="${endLine}"]`);
     if (anchor instanceof HTMLElement) openCompose(anchor, file, startLine, endLine, side, snippet);
   }
   // Re-rendering threw away the highlights and changed how many threads are
@@ -783,10 +796,11 @@ function bindNavigation(): void {
 
 function bindButton(id: string, msgType: string): void {
   const btn = document.getElementById(id);
-  if (btn)
-    {btn.onclick = () => {
+  if (btn) {
+    btn.onclick = () => {
       send({ type: msgType });
-    };}
+    };
+  }
 }
 bindButton("approve", "approve");
 bindButton("requestChanges", "requestChanges");
@@ -822,7 +836,8 @@ document.addEventListener("mousedown", (e) => {
   document.querySelectorAll(".splitgrid").forEach((g) => {
     g.classList.remove("sel-old", "sel-new");
   });
-  const cell = e.target instanceof Element ? e.target.closest<HTMLElement>(".gcode[data-side]") : null;
+  const cell =
+    e.target instanceof Element ? e.target.closest<HTMLElement>(".gcode[data-side]") : null;
   const side = cell?.dataset.side;
   if (side) cell?.closest(".splitgrid")?.classList.add(side === "old" ? "sel-old" : "sel-new");
 });
@@ -854,8 +869,9 @@ document.addEventListener("mouseup", (e) => {
   b.style.left = `${e.clientX + window.scrollX}px`;
   b.onclick = () => {
     const anchor =
-      document.querySelector(`[data-side="${side}"][data-file="${CSS.escape(file)}"][data-line="${endLine}"]`) ??
-      document.querySelector(`[data-file="${CSS.escape(file)}"][data-line="${endLine}"]`);
+      document.querySelector(
+        `[data-side="${side}"][data-file="${CSS.escape(file)}"][data-line="${endLine}"]`,
+      ) ?? document.querySelector(`[data-file="${CSS.escape(file)}"][data-line="${endLine}"]`);
     clearBubble();
     if (anchor instanceof HTMLElement) openCompose(anchor, file, startLine, endLine, side, snippet);
   };

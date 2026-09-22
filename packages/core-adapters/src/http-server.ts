@@ -39,6 +39,7 @@ export class HttpReviewHost {
   private readonly lastActivityAt = new Map<string, number>();
   private waitingChanged?: (worktreeId: string, waiting: boolean) => void;
   private idleEvent?: (worktreeId: string) => ReviewEvent;
+  private roundOpenedAt?: (worktreeId: string) => number | undefined;
   private onPushReceived?: (
     worktreeId: string,
     repoRoot: string,
@@ -110,6 +111,26 @@ export class HttpReviewHost {
     this.idleEvent = cb;
   }
 
+  /**
+   * Supplies when the open round started, so every event can say how long the review
+   * has been going. Read synchronously at delivery time rather than passed in with
+   * each event, because the three delivery paths — a live emit, a held event, a
+   * timed-out poll — would each have to remember to carry it.
+   */
+  onRoundOpenedAt(cb: (worktreeId: string) => number | undefined): void {
+    this.roundOpenedAt = cb;
+  }
+
+  /**
+   * Add what the caller cannot know: how long its round has been running. One
+   * chokepoint for all three delivery paths. An unknown start is left off rather
+   * than sent as zero, which would read as a round that began at the epoch.
+   */
+  private timed(worktreeId: string, event: ReviewEvent): ReviewEvent {
+    const openedAt = this.roundOpenedAt?.(worktreeId);
+    return openedAt === undefined ? event : { ...event, reviewMs: Date.now() - openedAt };
+  }
+
   /** Give a freshly arrived caller the oldest event raised while it was away. */
   private deliverHeld(worktreeId: string): void {
     const q = this.held.get(worktreeId);
@@ -152,7 +173,7 @@ export class HttpReviewHost {
         const waiter: Waiter = (event) => {
           clearTimeout(timer);
           res.setHeader("content-type", "application/json");
-          res.end(JSON.stringify(event));
+          res.end(JSON.stringify(this.timed(worktreeId, event)));
         };
         list.push(waiter);
         this.waiters.set(worktreeId, list);
