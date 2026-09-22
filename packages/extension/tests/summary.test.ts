@@ -54,7 +54,11 @@ describe("changeTotals", () => {
 
 describe("reviewProgress", () => {
   it("counts a viewed file with nothing open as done", () => {
-    expect(reviewProgress([file({ viewed: true }), file()])).toEqual({ done: 1, total: 2, pct: 50 });
+    expect(reviewProgress([file({ viewed: true }), file()])).toEqual({
+      done: 1,
+      total: 2,
+      pct: 50,
+    });
   });
 
   it("does not count a viewed file that still has an unresolved thread", () => {

@@ -22,6 +22,8 @@ import type {
   Side,
 } from "@revizorro/protocol";
 
+import type { ReviewActions } from "./panel.js";
+
 /** What the form shows at a glance, read synchronously when a poll times out. */
 export interface ReviewSnapshot {
   round: number;
@@ -39,6 +41,10 @@ export interface ReviewSnapshot {
 export interface ReviewSessionDeps {
   /** Hand an event to the agent. False when nobody was listening. */
   emit: (worktreeId: string, event: ReviewEvent, holdIfIdle?: boolean) => boolean;
+  /** Whether an agent is blocked on THIS review right now — the form says so. */
+  isAgentWaiting: (worktreeId: string) => boolean;
+  /** The human is at this review's form; keeps its inactivity clock honest. */
+  noteActivity: (worktreeId: string) => void;
   renderState: (session: ReviewSession, s: SessionState, diff: DiffFile[]) => void;
   openForm: (session: ReviewSession, s: SessionState, diff: DiffFile[]) => void;
 }
@@ -62,12 +68,12 @@ export interface ReviewIdentity {
  * review in the same window has its own copy of all of it rather than overwriting
  * this one's.
  */
-export class ReviewSession {
+export class ReviewSession implements ReviewActions {
   readonly repoRoot: string;
   readonly worktreeId: string;
   readonly stagedOnly: boolean;
-  readonly branch: string;
   readonly baseRef: string;
+  private readonly branchName: string;
   private readonly store: FsSessionStore;
   private readonly diffs: GitDiffProvider;
   private lastDiff: DiffFile[] = [];
@@ -85,7 +91,7 @@ export class ReviewSession {
     this.repoRoot = identity.repoRoot;
     this.worktreeId = identity.worktreeId;
     this.stagedOnly = identity.stagedOnly;
-    this.branch = identity.branch;
+    this.branchName = identity.branch;
     this.baseRef = identity.baseRef;
     this.store = new FsSessionStore(identity.repoRoot, identity.branch);
     // The diff source is baked into the provider, so a different scope is a
@@ -104,12 +110,31 @@ export class ReviewSession {
       this.repoRoot === repoRoot &&
       this.stagedOnly === scope.stagedOnly &&
       this.baseRef === scope.baseRef &&
-      this.branch === branch
+      this.branchName === branch
     );
+  }
+
+  /** Branch under review, for this tab's toolbar. */
+  branch(): string {
+    return this.branchName;
   }
 
   isPending(threadId: string): boolean {
     return this.pending.has(threadId);
+  }
+
+  /** Whether an agent is blocked on this review right now. */
+  isAgentWaiting(): boolean {
+    return this.deps.isAgentWaiting(this.worktreeId);
+  }
+
+  /**
+   * This review's form saw human input. Reading, expanding context and marking a
+   * file viewed emit no event, so without this a careful reader is
+   * indistinguishable from an empty desk.
+   */
+  noteActivity(): void {
+    this.deps.noteActivity(this.worktreeId);
   }
 
   snapshot(): ReviewSnapshot | undefined {

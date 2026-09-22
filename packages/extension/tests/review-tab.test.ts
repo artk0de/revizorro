@@ -19,6 +19,14 @@ describe("review tab", () => {
     expect(reviewTabTitle(7)).toBe("Code Review (Round 7)");
   });
 
+  // Two reviews can be open at once, and "Code Review (Round 1)" twice over tells
+  // the human nothing about which branch each tab is asking them to approve. The
+  // branch leads because a tab title gets truncated from the end.
+  it("leads with the branch when it knows one, so two open reviews are told apart", () => {
+    expect(reviewTabTitle(2, "feature-a")).toBe("feature-a · Round 2");
+    expect(reviewTabTitle(1, "fix/TD-100361-header")).toBe("fix/TD-100361-header · Round 1");
+  });
+
   it("ships an icon for light and dark themes inside the packaged media folder", () => {
     for (const icon of [REVIEW_TAB_ICON.light, REVIEW_TAB_ICON.dark]) {
       expect(icon).toMatch(/\.png$/);

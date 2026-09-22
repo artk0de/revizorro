@@ -70,11 +70,7 @@ export function stepIndex(len: number, current: number, dir: 1 | -1): number {
  * A review with everything resolved has nothing to walk, and a control reading
  * 0/0 is chrome that invites a click and then does nothing.
  */
-export function renderThreadNav(
-  ids: string[],
-  current: string | null,
-  all: string[] = ids,
-): void {
+export function renderThreadNav(ids: string[], current: string | null, all: string[] = ids): void {
   const nav = document.getElementById("threadNav");
   if (!nav) return;
   nav.toggleAttribute("hidden", ids.length === 0);

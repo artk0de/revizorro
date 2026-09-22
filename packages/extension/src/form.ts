@@ -1,48 +1,61 @@
 import * as vscode from "vscode";
 import type { SessionState } from "@revizorro/protocol";
 import type { DiffFile } from "@revizorro/core";
-import type { ReviewHost } from "./host.js";
-import { ReviewPanel } from "./panel.js";
+import type { ReviewSession } from "./session.js";
+import { ReviewPanel, type ReviewActions } from "./panel.js";
 
 /**
- * The window's review tabs: opens them, renders into them, and owns the one piece of
- * state that belongs to the window rather than to any single tab — whether the
- * terminal was pushed aside to give a review the full height.
+ * The window's review tabs — one per worktree, so two agent sessions each get their
+ * own — plus the one piece of state that belongs to the window rather than to any
+ * single tab: whether the terminal was pushed aside to give a review the full height.
  */
 export class ReviewForm {
-  private panel?: ReviewPanel;
+  private readonly panels = new Map<string, ReviewPanel>();
 
-  constructor(
-    private readonly host: ReviewHost,
-    private readonly mediaDir: string,
-  ) {}
+  constructor(private readonly mediaDir: string) {}
 
-  /** Open (creating if needed) the form, then render the current state. */
-  open(state: SessionState | null, diff: DiffFile[]): void {
-    const panel = this.ensurePanel();
+  /** Open (creating if needed) this review's tab, then render the current state. */
+  open(session: ReviewSession, state: SessionState | null, diff: DiffFile[]): void {
+    const panel = this.ensurePanel(session);
     if (!state) return;
     panel.open(state, diff);
   }
 
-  /** Render an update into the EXISTING panel — never resurrects a closed form. */
-  render(state: SessionState | null, diff: DiffFile[]): void {
-    if (!this.panel || !state) return;
-    this.panel.render(state, diff);
+  /** Render an update into the EXISTING tab — never resurrects a closed form. */
+  render(session: ReviewSession, state: SessionState | null, diff: DiffFile[]): void {
+    if (!state) return;
+    this.panels.get(session.worktreeId)?.render(state, diff);
   }
 
-  private ensurePanel(): ReviewPanel {
-    const open = this.panel;
+  /**
+   * The review a command from the palette should act on: the tab the human is looking
+   * at. With one tab open it is that one even when the focus sits in an editor —
+   * otherwise the commands would stop working the moment someone clicked away. With
+   * several open and none focused there is no answer, and guessing would approve the
+   * wrong branch.
+   */
+  activeReview(): ReviewActions | undefined {
+    const panels = [...this.panels.values()];
+    const active = panels.find((p) => p.isActive());
+    if (active) return active.actions;
+    return panels.length === 1 ? panels[0].actions : undefined;
+  }
+
+  private ensurePanel(session: ReviewSession): ReviewPanel {
+    const open = this.panels.get(session.worktreeId);
     if (open) return open;
-    const panel = new ReviewPanel(this.host, this.mediaDir, (decided) => {
-      this.panel = undefined;
-      // A verdict hands the work back to the agent, and the terminal is where the
-      // human watches it pick the work up.
-      if (decided) this.restoreTerminal();
-    });
-    this.panel = panel;
     // Created, not rendered: a re-render must never slam shut a terminal the human
-    // deliberately opened while reading.
-    this.collapseTerminal();
+    // deliberately opened while reading. Only the FIRST tab collapses it — the second
+    // review opening is not a fresh reason to take the panel away again.
+    const first = this.panels.size === 0;
+    const panel = new ReviewPanel(session, this.mediaDir, (decided) => {
+      this.panels.delete(session.worktreeId);
+      // A verdict hands the work back to the agent, and the terminal is where the
+      // human watches it pick the work up — but only once no review is left to read.
+      if (decided && this.panels.size === 0) this.restoreTerminal();
+    });
+    this.panels.set(session.worktreeId, panel);
+    if (first) this.collapseTerminal();
     return panel;
   }
 
@@ -79,6 +92,7 @@ export class ReviewForm {
   }
 
   dispose(): void {
-    this.panel?.dispose();
+    for (const panel of this.panels.values()) panel.dispose();
+    this.panels.clear();
   }
 }

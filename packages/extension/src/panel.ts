@@ -46,7 +46,8 @@ export class ReviewPanel {
   private decided = false;
 
   constructor(
-    private readonly actions: ReviewActions,
+    /** The one review this tab shows and acts on. */
+    readonly actions: ReviewActions,
     mediaDir: string,
     /** Reports the close and whether a verdict caused it — the terminal is the
      *  window's to restore, not this tab's. */
@@ -143,6 +144,11 @@ export class ReviewPanel {
     );
   }
 
+  /** Whether this is the tab the human is looking at — a command acts on that one. */
+  isActive(): boolean {
+    return this.panel.active;
+  }
+
   /** Show this tab and render the state into it — a fresh round is not yet decided. */
   open(state: SessionState, diff: DiffFile[]): void {
     this.decided = false;
@@ -151,7 +157,7 @@ export class ReviewPanel {
 
   render(state: SessionState, diff: DiffFile[]): void {
     // The same panel lives across rounds, so the tab follows the round it shows.
-    this.panel.title = reviewTabTitle(state.round);
+    this.panel.title = reviewTabTitle(state.round, this.actions.branch());
     const files = diff.map((d) => ({
       path: d.path,
       oldPath: d.oldPath,

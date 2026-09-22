@@ -5,12 +5,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HttpReviewClient, FsSessionStore } from "@revizorro/core-adapters";
 import { ReviewHost } from "../src/host.js";
+import type { ReviewSession } from "../src/session.js";
 
 const git = (cwd: string, ...a: string[]): string =>
   execFileSync("git", a, { cwd, encoding: "utf8" });
 
 let repo: string;
 let host: ReviewHost;
+
+/** The review under test. Every test in this file drives the one worktree, "wt1". */
+const underReview = (): ReviewSession => {
+  const s = host.review("wt1");
+  if (!s) throw new Error("no review is open for wt1");
+  return s;
+};
 let port: number;
 
 /**
@@ -83,7 +91,7 @@ afterEach(async () => {
 describe("a viewed file the agent then edits", () => {
   it("loses its viewed tick when the agent re-opens the same round after editing it", async () => {
     await review();
-    await host.setViewed("a.ts", true);
+    await underReview().setViewed("a.ts", true);
     expect((await stored())["a.ts"].viewed).toBe(true);
 
     // The agent applies a fix and calls review again — same scope, round still open.
@@ -98,8 +106,8 @@ describe("a viewed file the agent then edits", () => {
   it("keeps the tick on a file the agent left alone, so re-reading is not asked for twice", async () => {
     writeFileSync(join(repo, "b.ts"), "export const b = 1;\n");
     await review();
-    await host.setViewed("a.ts", true);
-    await host.setViewed("b.ts", true);
+    await underReview().setViewed("a.ts", true);
+    await underReview().setViewed("b.ts", true);
 
     writeFileSync(join(repo, "b.ts"), "export const b = 2; // fixed\n");
     await review();

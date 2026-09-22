@@ -3,8 +3,14 @@
  * tested; ReviewForm applies it to the panel.
  */
 
-/** The round is the one thing that changes between two visits to the same form. */
-export const reviewTabTitle = (round: number): string => `Code Review (Round ${round})`;
+/**
+ * What one review's tab says. The branch leads when it is known: a window can hold a
+ * review per worktree, and two tabs both reading "Code Review (Round 1)" say nothing
+ * about which branch each one is asking the human to approve. Titles truncate from the
+ * end, so the branch goes where it survives.
+ */
+export const reviewTabTitle = (round: number, branch = ""): string =>
+  branch ? `${branch} · Round ${round}` : `Code Review (Round ${round})`;
 
 /**
  * Tab icons, relative to the extension's media folder. VS Code picks `light` on
