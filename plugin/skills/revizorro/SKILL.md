@@ -23,6 +23,11 @@ host via the global registry (`~/.claude/revizorro/hosts/`) and sends this
 project's path, so the chosen window reviews THIS worktree regardless of which
 folder it has open. The form appears in that window.
 
+One window holds one review per worktree, each in its own tab. A second session
+reviewing another worktree opens its own tab beside yours and does not disturb
+your round — so a tab you did not open is a colleague's review, not yours being
+taken away.
+
 If `revizorro review` exits with `no revizorro window found …`, ask the user to
 open a folder in VS Code with the extension active, then retry. Dead/closed
 windows are skipped and cleaned up automatically.
