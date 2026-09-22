@@ -1,23 +1,16 @@
 import * as vscode from "vscode";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { SessionState } from "@revizorro/protocol";
 import type { DiffFile } from "@revizorro/core";
 import type { ReviewHost } from "./host.js";
-import { REVIEW_TAB_ICON, reviewTabTitle } from "./review-tab.js";
+import { ReviewPanel } from "./panel.js";
 
 /**
- * Self-contained webview review form (GitHub-PR-style): renders the full diff
- * with code + viewed-collapse + inline comments + Approve/Decline, all in one
- * panel. UI actions delegate to ReviewHost.
+ * The window's review tabs: opens them, renders into them, and owns the one piece of
+ * state that belongs to the window rather than to any single tab — whether the
+ * terminal was pushed aside to give a review the full height.
  */
 export class ReviewForm {
-  private panel?: vscode.WebviewPanel;
-  private lastMessage?: object;
-  private viewMode: "inline" | "split" = "inline";
-  /** Set right before a verdict disposes the panel, so onDidDispose can tell a
-   *  real decision apart from the human closing the tab (which must emit closed). */
-  private decided = false;
+  private panel?: ReviewPanel;
 
   constructor(
     private readonly host: ReviewHost,
@@ -26,45 +19,31 @@ export class ReviewForm {
 
   /** Open (creating if needed) the form, then render the current state. */
   open(state: SessionState | null, diff: DiffFile[]): void {
-    this.decided = false;
-    this.ensurePanel();
-    this.render(state, diff);
+    const panel = this.ensurePanel();
+    if (!state) return;
+    panel.open(state, diff);
   }
 
   /** Render an update into the EXISTING panel — never resurrects a closed form. */
   render(state: SessionState | null, diff: DiffFile[]): void {
     if (!this.panel || !state) return;
-    // The same panel lives across rounds, so the tab follows the round it shows.
-    this.panel.title = reviewTabTitle(state.round);
-    const files = diff.map((d) => ({
-      path: d.path,
-      oldPath: d.oldPath,
-      patch: d.patch ?? "",
-      content: d.content ?? "",
-      binary: d.binary ?? false,
-      viewed: state.files[d.path]?.viewed ?? false,
-      threads: state.threads
-        .filter((t) => t.file === d.path)
-        .map((t) => ({
-          id: t.id,
-          line: t.range.startLine,
-          side: t.side,
-          resolved: t.resolved,
-          pending: this.host.isPending(t.id),
-          messages: t.messages,
-        })),
-    }));
-    this.lastMessage = {
-      type: "state",
-      round: state.round,
-      status: state.status,
-      scope: state.scope,
-      branch: this.host.branch(),
-      agentWaiting: this.host.isAgentWaiting(),
-      viewMode: this.viewMode,
-      files,
-    };
-    void this.panel.webview.postMessage(this.lastMessage);
+    this.panel.render(state, diff);
+  }
+
+  private ensurePanel(): ReviewPanel {
+    const open = this.panel;
+    if (open) return open;
+    const panel = new ReviewPanel(this.host, this.mediaDir, (decided) => {
+      this.panel = undefined;
+      // A verdict hands the work back to the agent, and the terminal is where the
+      // human watches it pick the work up.
+      if (decided) this.restoreTerminal();
+    });
+    this.panel = panel;
+    // Created, not rendered: a re-render must never slam shut a terminal the human
+    // deliberately opened while reading.
+    this.collapseTerminal();
+    return panel;
   }
 
   /**
@@ -97,108 +76,6 @@ export class ReviewForm {
   private restoreTerminal(): void {
     if (vscode.window.terminals.length === 0) return;
     void vscode.commands.executeCommand("workbench.action.terminal.focus");
-  }
-
-  private ensurePanel(): void {
-    if (this.panel) return;
-    this.panel = vscode.window.createWebviewPanel(
-      "revizorroReview",
-      // render() puts the round in right after; this only shows if it never can.
-      "Code Review",
-      vscode.ViewColumn.Active,
-      // enableFindWidget gives the form VS Code's own Cmd/Ctrl+F over the rendered
-      // diff — searching a long review by eye is the alternative.
-      { enableScripts: true, retainContextWhenHidden: true, enableFindWidget: true },
-    );
-    this.panel.iconPath = {
-      light: vscode.Uri.file(join(this.mediaDir, REVIEW_TAB_ICON.light)),
-      dark: vscode.Uri.file(join(this.mediaDir, REVIEW_TAB_ICON.dark)),
-    };
-    const html = readFileSync(join(this.mediaDir, "review.html"), "utf8");
-    const js = readFileSync(join(this.mediaDir, "webview.js"), "utf8").replace(
-      /<\/script>/g,
-      "<\\/script>",
-    );
-    this.panel.webview.html = html.replace("// <!--WEBVIEW_JS-->", () => js);
-    // Created, not rendered: a re-render must never slam shut a terminal the human
-    // deliberately opened while reading.
-    this.collapseTerminal();
-    this.panel.onDidDispose(() => {
-      this.panel = undefined;
-      // Tab closed without Approve/Request changes → the human abandoned the
-      // review; wake any blocked agent with a closed event instead of hanging.
-      if (!this.decided) {
-        void this.host.abandon();
-        return;
-      }
-      // A verdict hands the work back to the agent, and the terminal is where the
-      // human watches it pick the work up.
-      this.restoreTerminal();
-    });
-    this.panel.webview.onDidReceiveMessage(
-      (m: {
-        type: string;
-        file?: string;
-        side?: "old" | "new";
-        viewed?: boolean;
-        startLine?: number;
-        endLine?: number;
-        index?: number;
-        body?: string;
-        threadId?: string;
-        resolved?: boolean;
-        text?: string;
-      }) => {
-        if (m.type === "ready") {
-          if (this.lastMessage) void this.panel?.webview.postMessage(this.lastMessage);
-        } else if (m.type === "copy" && m.text) {
-          // The webview cannot be relied on for clipboard access; the host can.
-          void vscode.env.clipboard.writeText(m.text);
-        } else if (m.type === "activity") {
-          // Reading and scrolling emit nothing else; this is what keeps the
-          // host's inactivity clock honest about a reviewer who is still here.
-          this.host.noteActivity();
-        } else if (m.type === "approve") {
-          this.decided = true;
-          void this.host.approve();
-          this.panel?.dispose();
-        } else if (m.type === "requestChanges") {
-          this.decided = true;
-          void this.host.requestChanges();
-          this.panel?.dispose();
-        } else if (m.type === "clarify") {
-          // Form stays open; the agent answers in-place (loaders show).
-          void this.host.clarify();
-        } else if (m.type === "toggleViewMode") {
-          this.viewMode = this.viewMode === "inline" ? "split" : "inline";
-          if (this.lastMessage) {
-            void this.panel?.webview.postMessage({ ...this.lastMessage, viewMode: this.viewMode });
-          }
-        } else if (m.type === "setViewed" && m.file !== undefined) {
-          void this.host.setViewed(m.file, !!m.viewed);
-        } else if (
-          (m.type === "comment" || m.type === "ask") &&
-          m.file !== undefined &&
-          m.startLine !== undefined &&
-          m.endLine !== undefined &&
-          m.body
-        ) {
-          void this.host.addHumanComment(
-            m.file,
-            { startLine: m.startLine, endLine: m.endLine },
-            m.body,
-            m.type === "ask",
-            m.side ?? "new",
-          );
-        } else if ((m.type === "reply" || m.type === "askReply") && m.threadId && m.body) {
-          void this.host.addHumanReply(m.threadId, m.body, m.type === "askReply");
-        } else if (m.type === "editMessage" && m.threadId && m.index !== undefined && m.body) {
-          void this.host.editMessage(m.threadId, m.index, m.body);
-        } else if (m.type === "resolve" && m.threadId) {
-          void this.host.resolveThread(m.threadId, !!m.resolved);
-        }
-      },
-    );
   }
 
   dispose(): void {
