@@ -26,11 +26,18 @@ import {
   allThreadIds,
   threadElement,
   stepId,
-  stepIndex,
   jumpTo,
   renderThreadNav,
 } from "./view/navigate.js";
-import { markMatches, setFindOpen, isFindOpen, toggleFind } from "./view/find.js";
+import {
+  isFindOpen,
+  runFind,
+  reapplyFind,
+  stepFind,
+  openFind,
+  closeFind,
+  toggleFindBar,
+} from "./view/find.js";
 import { composeDraftKey, replyDraftKey, editDraftKey } from "@revizorro/core";
 
 declare function acquireVsCodeApi(): { postMessage: (m: unknown) => void };
@@ -648,8 +655,6 @@ function render(): void {
 
 /** Which open thread the human is parked on — an id, so it survives a re-render. */
 let currentThreadId: string | null = null;
-let findHits: HTMLElement[] = [];
-let findAt = -1;
 
 function refreshThreadNav(): void {
   renderThreadNav(unresolvedThreadIds(), currentThreadId, allThreadIds());
@@ -664,66 +669,6 @@ function gotoThread(dir: 1 | -1): void {
   const box = threadElement(next);
   if (box) jumpTo(box);
   refreshThreadNav();
-}
-
-function paintFindPos(): void {
-  const pos = document.getElementById("findPos");
-  const input = document.getElementById("findInput");
-  const query = input instanceof HTMLInputElement ? input.value.trim() : "";
-  if (!pos) return;
-  pos.textContent = query.length < 2 ? "" : `${findAt >= 0 ? findAt + 1 : 0}/${findHits.length}`;
-}
-
-function runFind(query: string): void {
-  const root = document.getElementById("files");
-  if (!root) return;
-  findHits = markMatches(root, query);
-  findAt = -1;
-  paintFindPos();
-}
-
-/** After a re-render the marks are gone; put them back rather than lying about a count. */
-function reapplyFind(): void {
-  const input = document.getElementById("findInput");
-  if (!(input instanceof HTMLInputElement) || input.value.trim().length < 2) {
-    findHits = [];
-    findAt = -1;
-    paintFindPos();
-    return;
-  }
-  const wasAt = findAt;
-  runFind(input.value);
-  findAt = Math.min(wasAt, findHits.length - 1);
-  if (findAt >= 0) findHits[findAt].classList.add("current");
-  paintFindPos();
-}
-
-function stepFind(dir: 1 | -1): void {
-  if (findHits.length === 0) return;
-  findAt = stepIndex(findHits.length, findAt, dir);
-  for (const h of findHits) h.classList.remove("current");
-  const hit = findHits[findAt];
-  hit.classList.add("current");
-  jumpTo(hit);
-  paintFindPos();
-}
-
-function openFind(): void {
-  setFindOpen(true);
-}
-
-function closeFind(): void {
-  setFindOpen(false);
-  findHits = [];
-  findAt = -1;
-}
-
-/** ⌘F and the magnifier are the same switch; closing drops the stale hit list. */
-function toggleFindBar(): void {
-  if (!toggleFind()) {
-    findHits = [];
-    findAt = -1;
-  }
 }
 
 function bindNavigation(): void {
