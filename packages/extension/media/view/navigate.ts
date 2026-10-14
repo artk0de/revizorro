@@ -140,3 +140,21 @@ export function jumpTo(target: HTMLElement): void {
   window.scrollTo?.({ top: Math.max(0, top), behavior: "smooth" });
   flash(target);
 }
+
+/** Which open thread the human is parked on — an id, so it survives a re-render. */
+let currentThreadId: string | null = null;
+
+export function refreshThreadNav(): void {
+  renderThreadNav(unresolvedThreadIds(), currentThreadId, allThreadIds());
+}
+
+export function gotoThread(dir: 1 | -1): void {
+  // Diff order including resolved threads: the cursor keeps its place when the
+  // thread under it is ticked off, so "next" reaches the one after it.
+  const next = stepId(unresolvedThreadIds(), currentThreadId, dir, allThreadIds());
+  if (!next) return;
+  currentThreadId = next;
+  const box = threadElement(next);
+  if (box) jumpTo(box);
+  refreshThreadNav();
+}
