@@ -84,6 +84,7 @@ describe("restoring the form after a window reload", () => {
 
   it("stays quiet when the last round was already decided, so a finished review does not reappear", async () => {
     await openRound();
+    if (!opener) throw new Error("openRound left no host running");
     await opener.review(worktreeIdFor(repo))?.requestChanges();
 
     await reload();
