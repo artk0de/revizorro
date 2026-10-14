@@ -35,7 +35,14 @@ export class ReviewHost {
     ) => void,
     private readonly openForm: (session: ReviewSession, s: SessionState, diff: DiffFile[]) => void,
   ) {
-    this.sessionDeps = {
+    this.sessionDeps = this.depsForSessions();
+    this.routeAgentCalls();
+    this.answerBrokerQueries();
+  }
+
+  /** What every session reaches the agent and the screen through: this host's broker and form. */
+  private depsForSessions(): ReviewSessionDeps {
+    return {
       emit: (wt, event, holdIfIdle) => this.events.emit(wt, event, holdIfIdle),
       isAgentWaiting: (wt) => this.events.isWaiting(wt),
       noteActivity: (wt) => {
@@ -48,6 +55,10 @@ export class ReviewHost {
         this.openForm(session, s, diff);
       },
     };
+  }
+
+  /** The agent's `push` and `review` calls, each handed to the session it is about. */
+  private routeAgentCalls(): void {
     this.events.onPush((wt, repoRoot, push, opts) => {
       void this.withSession(repoRoot, wt, opts, (session) => session.handlePush(push));
     });
@@ -55,6 +66,10 @@ export class ReviewHost {
     this.events.onReview((wt, repoRoot, opts) => {
       void this.withSession(repoRoot, wt, opts, (session) => session.openForReview());
     });
+  }
+
+  /** What the broker asks about a live review while an agent is polling it. */
+  private answerBrokerQueries(): void {
     // A timed-out poll answers with a snapshot of the live review, so the agent can
     // see the round is open and simply re-arm instead of diagnosing a healthy form.
     this.events.onIdle((wt) => {
