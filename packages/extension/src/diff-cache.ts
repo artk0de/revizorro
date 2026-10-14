@@ -1,7 +1,7 @@
 import { GitDiffProvider } from "@revizorro/core-adapters";
 import type { DiffFile } from "@revizorro/core";
 
-import type { ReviewIdentity } from "./session.js";
+import type { ReviewIdentity } from "./review-identity.js";
 
 /**
  * The diff one review last read, kept so a render, a snapshot or a verdict can use

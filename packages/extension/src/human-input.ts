@@ -1,9 +1,11 @@
 import type { FsSessionStore } from "@revizorro/core-adapters";
 import { editMessage as editThreadMessage } from "@revizorro/core";
-import type { SessionState, FileRange, Side } from "@revizorro/protocol";
+import type { SessionState, FileRange, ReviewEvent, Side } from "@revizorro/protocol";
 
 import type { FormRenderer } from "./form-renderer.js";
-import type { ReviewSessionDeps } from "./session.js";
+
+/** How an event reaches the agent; false when nobody was listening. */
+type EmitEvent = (worktreeId: string, event: ReviewEvent, holdIfIdle?: boolean) => boolean;
 
 /** Highest numeric suffix across existing thread ids — so new ids never collide after a restart. */
 export function maxThreadId(threads: SessionState["threads"]): number {
@@ -25,7 +27,7 @@ export class HumanInput {
     /** Thread ids awaiting an agent reply, shared with the session that owns them. */
     private readonly pending: Set<string>,
     private readonly form: FormRenderer,
-    private readonly emit: ReviewSessionDeps["emit"],
+    private readonly emit: EmitEvent,
   ) {}
 
   /**

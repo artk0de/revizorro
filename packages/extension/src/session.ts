@@ -21,18 +21,14 @@ import type {
 } from "@revizorro/protocol";
 
 import { DiffCache } from "./diff-cache.js";
-import { FormRenderer } from "./form-renderer.js";
+import { FormRenderer, type ReviewSnapshot } from "./form-renderer.js";
 import { HumanInput, maxThreadId } from "./human-input.js";
 import type { ReviewActions } from "./panel.js";
+import type { ReviewIdentity } from "./review-identity.js";
 import { openComments, verdictEvent } from "./verdict.js";
 
-/** What the form shows at a glance, read synchronously when a poll times out. */
-export interface ReviewSnapshot {
-  round: number;
-  files: number;
-  openThreads: number;
-  viewedFiles: number;
-}
+export type { ReviewIdentity } from "./review-identity.js";
+export type { ReviewSnapshot } from "./form-renderer.js";
 
 /**
  * What one review needs from the window around it: a way to reach the agent, and a
@@ -49,18 +45,6 @@ export interface ReviewSessionDeps {
   noteActivity: (worktreeId: string) => void;
   renderState: (session: ReviewSession, s: SessionState, diff: DiffFile[]) => void;
   openForm: (session: ReviewSession, s: SessionState, diff: DiffFile[]) => void;
-}
-
-/** Everything a review of one worktree is, at one scope: its identity and its state. */
-export interface ReviewIdentity {
-  repoRoot: string;
-  worktreeId: string;
-  /** The CLI asked to review the index only — unstaged edits stay out of the diff. */
-  stagedOnly: boolean;
-  /** Branch under review. Part of the session key, so a checkout starts fresh. */
-  branch: string;
-  /** Target branch the CLI asked to review against ("" = auto-detect). */
-  baseRef: string;
 }
 
 /**
@@ -97,7 +81,17 @@ export class ReviewSession implements ReviewActions {
     this.baseRef = identity.baseRef;
     this.store = new FsSessionStore(identity.repoRoot, identity.branch);
     this.diff = new DiffCache(identity);
-    this.form = new FormRenderer(this, deps, this.diff);
+    this.form = new FormRenderer(
+      {
+        render: (s, d) => {
+          deps.renderState(this, s, d);
+        },
+        open: (s, d) => {
+          deps.openForm(this, s, d);
+        },
+      },
+      this.diff,
+    );
     this.input = new HumanInput(
       identity.worktreeId,
       this.store,
