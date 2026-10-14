@@ -118,13 +118,34 @@ export class GitDiffProvider implements DiffProvider {
 
   async diff(_worktreeId: string): Promise<DiffFile[]> {
     const staged = this.options.stagedOnly === true;
-    // Two different questions, two different baselines. --staged-only asks "review
-    // what I just staged", so the branch's own last commit is the baseline and the
-    // commits already on the branch stay out of it. Plain worktree review asks
-    // "review this branch", so it baselines at the fork point with the target.
-    const base = staged
+    const base = await this.diffBase(staged);
+    const { rows, untracked } = await this.listChanges(base, staged);
+    const { paths, renames } = this.reviewedPaths(rows);
+
+    const files: DiffFile[] = [];
+    for (const path of paths) {
+      files.push(await this.diffFile(path, this.originOf(path, renames), base, staged, untracked));
+    }
+    return files.sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  /**
+   * Two different questions, two different baselines. --staged-only asks "review
+   * what I just staged", so the branch's own last commit is the baseline and the
+   * commits already on the branch stay out of it. Plain worktree review asks
+   * "review this branch", so it baselines at the fork point with the target.
+   */
+  private async diffBase(staged: boolean): Promise<string> {
+    return staged
       ? "HEAD"
       : (await this.git("merge-base", await this.resolveBase(), "HEAD")).trim();
+  }
+
+  /** Every changed path against `base`, as status rows, plus which of them are untracked. */
+  private async listChanges(
+    base: string,
+    staged: boolean,
+  ): Promise<{ rows: StatusRow[]; untracked: Set<string> }> {
     // --name-status -M keeps the rename pairs that --name-only collapses away, so a
     // moved file can be shown as `old → new` instead of a brand-new file.
     const committed = staged ? "" : await this.git("diff", "--name-status", "-M", base, "HEAD");
@@ -133,9 +154,7 @@ export class GitDiffProvider implements DiffProvider {
       : await this.git("diff", "--name-status", "-M", "HEAD");
     // Untracked files are worktree-only by definition — `git add` puts them in the
     // index, where the --cached listing above already picks them up.
-    const untrackedOut = staged
-      ? ""
-      : await this.git("ls-files", "--others", "--exclude-standard");
+    const untrackedOut = staged ? "" : await this.git("ls-files", "--others", "--exclude-standard");
     const untracked = new Set(untrackedOut.split("\n").filter(Boolean));
 
     const rows = [
@@ -143,45 +162,74 @@ export class GitDiffProvider implements DiffProvider {
       ...this.parseNameStatus(working),
       ...[...untracked].map((from): StatusRow => ({ status: "A", from })),
     ];
+    return { rows, untracked };
+  }
+
+  /** The paths to show, keyed by their current name, and each rename's new → old link. */
+  private reviewedPaths(rows: StatusRow[]): { paths: Set<string>; renames: Map<string, string> } {
     const renames = new Map<string, string>();
     for (const r of rows) if (r.to && /^[RC]/.test(r.status)) renames.set(r.to, r.from);
     const paths = new Set(rows.map((r) => r.to ?? r.from));
     // A rename's source only exists as the left half of the pair — never as a file
     // of its own (it may still be listed by the other diff as a plain change).
     for (const r of rows) if (r.to) paths.delete(r.from);
+    return { paths, renames };
+  }
 
-    const files: DiffFile[] = [];
-    for (const path of paths) {
-      const oldPath = this.originOf(path, renames);
-      let contentHash = "";
-      let content: string | undefined;
-      try {
-        const bytes = staged
-          ? await this.gitBytes("show", `:${path}`)
-          : await readFile(join(this.repoRoot, path));
-        contentHash = createHash("sha1").update(bytes).digest("hex");
-        content = bytes.toString("utf8");
-      } catch {
-        // deleted file → empty hash, no content
-      }
-      // Passing BOTH sides of a rename keeps git's rename detection alive under a
-      // pathspec; a single path would render the move as a full-content addition.
-      const pathspec = oldPath ? [oldPath, path] : [path];
-      const patch = untracked.has(path)
-        ? await this.gitAllowFail("diff", "--no-index", "--", "/dev/null", path)
-        : staged
-          ? await this.gitAllowFail("diff", "--cached", "-M", base, "--", ...pathspec)
-          : await this.gitAllowFail("diff", "-M", base, "--", ...pathspec);
-      const binary = /Binary files|GIT binary patch/.test(patch);
-      files.push({
-        path,
-        oldPath,
-        contentHash,
-        patch,
-        binary,
-        content: binary ? undefined : content,
-      });
+  private async diffFile(
+    path: string,
+    oldPath: string | undefined,
+    base: string,
+    staged: boolean,
+    untracked: Set<string>,
+  ): Promise<DiffFile> {
+    const { contentHash, content } = await this.readContent(path, staged);
+    const patch = await this.patchFor(path, oldPath, base, staged, untracked);
+    const binary = /Binary files|GIT binary patch/.test(patch);
+    return {
+      path,
+      oldPath,
+      contentHash,
+      patch,
+      binary,
+      content: binary ? undefined : content,
+    };
+  }
+
+  /** The reviewed side of a file: the index under --staged-only, else the worktree. */
+  private async readContent(
+    path: string,
+    staged: boolean,
+  ): Promise<{ contentHash: string; content?: string }> {
+    try {
+      const bytes = staged
+        ? await this.gitBytes("show", `:${path}`)
+        : await readFile(join(this.repoRoot, path));
+      return {
+        contentHash: createHash("sha1").update(bytes).digest("hex"),
+        content: bytes.toString("utf8"),
+      };
+    } catch {
+      // deleted file → empty hash, no content
+      return { contentHash: "" };
     }
-    return files.sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  private async patchFor(
+    path: string,
+    oldPath: string | undefined,
+    base: string,
+    staged: boolean,
+    untracked: Set<string>,
+  ): Promise<string> {
+    if (untracked.has(path)) {
+      return this.gitAllowFail("diff", "--no-index", "--", "/dev/null", path);
+    }
+    // Passing BOTH sides of a rename keeps git's rename detection alive under a
+    // pathspec; a single path would render the move as a full-content addition.
+    const pathspec = oldPath ? [oldPath, path] : [path];
+    return staged
+      ? this.gitAllowFail("diff", "--cached", "-M", base, "--", ...pathspec)
+      : this.gitAllowFail("diff", "-M", base, "--", ...pathspec);
   }
 }
