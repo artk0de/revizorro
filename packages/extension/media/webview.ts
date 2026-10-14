@@ -1,5 +1,4 @@
 import { el } from "./view/dom.js";
-import { LOCKFILE } from "./view/patch.js";
 import { setBridge, send } from "./view/bridge.js";
 import { trackActivity } from "./view/activity.js";
 import { renderSummary, renderBranch, renderAgentStatus } from "./view/summary.js";
@@ -11,15 +10,8 @@ import {
   bindTreeResizer,
   bindTreeHotkey,
 } from "./view/tree.js";
-import { focusSnapshot, restoreFocus } from "./view/drafts.js";
-import {
-  unresolvedThreadIds,
-  allThreadIds,
-  threadElement,
-  stepId,
-  jumpTo,
-  renderThreadNav,
-} from "./view/navigate.js";
+import { focusSnapshot, restoreFocus, type FocusSnapshot } from "./view/drafts.js";
+import { gotoThread, refreshThreadNav } from "./view/navigate.js";
 import {
   isFindOpen,
   runFind,
@@ -29,8 +21,10 @@ import {
   closeFind,
   toggleFindBar,
 } from "./view/find.js";
-import { openComposeAt, reopenCompose, type ThreadView } from "./view/thread.js";
-import { renderDiffBody, setRerender } from "./view/diff-body.js";
+import { reopenCompose } from "./view/thread.js";
+import { setRerender } from "./view/diff-body.js";
+import { renderFile, renderFailedFile, type CardFile } from "./view/file-card.js";
+import { bindCommentBubble } from "./view/comment-bubble.js";
 
 declare function acquireVsCodeApi(): { postMessage: (m: unknown) => void };
 const vscode = acquireVsCodeApi();
@@ -50,125 +44,45 @@ interface Msg {
   branch?: string;
   agentWaiting?: boolean;
   viewMode?: string;
-  files: FileView[];
-}
-interface FileView {
-  path: string;
-  /** Set when git detected a rename — the path this file used to live at. */
-  oldPath?: string;
-  patch: string;
-  content: string;
-  binary: boolean;
-  viewed: boolean;
-  threads: ThreadView[];
+  files: CardFile[];
 }
 
 let state: Msg | null = null;
 
-const baseName = (path: string): string => path.split("/").pop() ?? path;
-
-// A moved file keeps its name, a renamed one doesn't — GitLab/GitHub label the two
-// differently, and the distinction is what tells you whether to re-read the diff.
-function renamePath(f: FileView): { label: HTMLElement; tag: string } {
-  const label = el("span", "path");
-  if (!f.oldPath) {
-    label.textContent = f.path;
-    return { label, tag: "" };
-  }
-  label.append(
-    el("span", "oldpath", f.oldPath),
-    el("span", "movearrow", " → "),
-    document.createTextNode(f.path),
-  );
-  return { label, tag: baseName(f.oldPath) === baseName(f.path) ? "moved" : "renamed" };
-}
-
-function renderFile(f: FileView, mode: string): HTMLElement {
-  const lineCount = f.patch ? f.patch.split("\n").length : 0;
-  const big = LOCKFILE.test(f.path) || lineCount > 400;
-  const collapsed = f.viewed || big;
-  const wrap = el("div", `file${f.viewed ? " viewed" : ""}`);
-  wrap.dataset.path = f.path;
-  const head = el("div", "file-head");
-  const caret = el("span", "caret", collapsed ? "▸" : "▾");
-  const { label: path, tag: moveTag } = renamePath(f);
-  const tag = el(
-    "span",
-    "tag",
-    f.binary ? "binary" : big ? `${lineCount} lines — collapsed` : moveTag,
-  );
-  if (moveTag && !f.binary && !big) tag.classList.add("move");
-  const chk = el("label", "viewed-chk");
-  const cbox = document.createElement("input");
-  cbox.type = "checkbox";
-  cbox.checked = f.viewed;
-  cbox.onclick = (e) => {
-    e.stopPropagation();
-    send({ type: "setViewed", file: f.path, viewed: cbox.checked });
-  };
-  chk.append(cbox, document.createTextNode(" viewed"));
-  head.append(caret, path, tag, chk);
-
-  const diff = el("div", "diff");
-  diff.style.display = collapsed ? "none" : "block";
-  head.onclick = () => {
-    diff.style.display = diff.style.display === "none" ? "block" : "none";
-    caret.textContent = diff.style.display === "none" ? "▸" : "▾";
-  };
-  if (f.binary) diff.append(el("div", "binary", "(binary file — no textual diff)"));
-  else {
-    if (mode === "split") diff.classList.add("split");
-    diff.append(renderDiffBody(f, mode));
-  }
-  wrap.append(head, diff);
-  return wrap;
-}
-
-function render(): void {
-  if (!state) return;
-  // An agent push rebuilds the form under the human's hands; keep the caret where
-  // it was so an arriving reply does not interrupt a sentence.
-  const focus = focusSnapshot();
-  const round = document.getElementById("round");
-  if (round) round.textContent = `round ${state.round} · ${state.status}`;
-  renderSummary(state.files, state.scope);
-  renderBranch(state.branch ?? "");
-
+function renderViewModeToggle(viewMode: string | undefined): void {
   const toggle = document.getElementById("toggle");
-  if (toggle) {
-    const mode = state.viewMode || "inline";
-    toggle.innerHTML = `⇆ <span class="${mode === "inline" ? "on" : ""}">inline</span> / <span class="${mode === "split" ? "on" : ""}">split</span>`;
-  }
+  if (!toggle) return;
+  const mode = viewMode || "inline";
+  toggle.innerHTML = `⇆ <span class="${mode === "inline" ? "on" : ""}">inline</span> / <span class="${mode === "split" ? "on" : ""}">split</span>`;
+}
+
+/** The chrome above the diff: round, summary, branch, view mode, agent status. */
+function renderHeader(s: Msg): void {
+  const round = document.getElementById("round");
+  if (round) round.textContent = `round ${s.round} · ${s.status}`;
+  renderSummary(s.files, s.scope);
+  renderBranch(s.branch ?? "");
+  renderViewModeToggle(s.viewMode);
   // One place says what the agent is doing: answering, listening, or gone.
-  const pendingCount = state.files.reduce(
-    (n, f) => n + f.threads.filter((t) => t.pending).length,
-    0,
-  );
-  renderAgentStatus(state.agentWaiting, pendingCount);
-  const root = document.getElementById("files");
-  if (!root) return;
-  root.innerHTML = "";
-  renderTree(state.files);
-  if (!state.files.length) {
-    root.append(el("div", "empty", "no changes in the worktree"));
-    restoreFocus(focus);
-    return;
-  }
+  const pendingCount = s.files.reduce((n, f) => n + f.threads.filter((t) => t.pending).length, 0);
+  renderAgentStatus(s.agentWaiting, pendingCount);
+}
+
+function renderFiles(root: HTMLElement, files: CardFile[], mode: string): void {
   // One unrenderable file must not cost the human the rest of the review: without
   // this, a throw part-way through left the tree listing files whose diff cards had
   // never been built, so the sidebar pointed at nothing and the form looked dead.
-  for (const f of state.files) {
+  for (const f of files) {
     try {
-      root.append(renderFile(f, state.viewMode || "inline"));
+      root.append(renderFile(f, mode));
     } catch (e) {
-      const failed = el("div", "file");
-      failed.dataset.path = f.path;
-      const head = el("div", "file-head");
-      head.append(el("span", "path", f.path), el("span", "tag", "could not be rendered"));
-      failed.append(head, el("div", "binary", String(e instanceof Error ? e.message : e)));
-      root.append(failed);
+      root.append(renderFailedFile(f.path, e));
     }
   }
+}
+
+/** Bring back what the human had going before the rebuild threw it away. */
+function restoreTransientUi(focus: FocusSnapshot | null): void {
   reopenCompose();
   // Re-rendering threw away the highlights and changed how many threads are
   // open; both controls have to catch up before the human touches them again.
@@ -180,89 +94,98 @@ function render(): void {
   });
 }
 
-/** Which open thread the human is parked on — an id, so it survives a re-render. */
-let currentThreadId: string | null = null;
-
-function refreshThreadNav(): void {
-  renderThreadNav(unresolvedThreadIds(), currentThreadId, allThreadIds());
+function render(): void {
+  if (!state) return;
+  // An agent push rebuilds the form under the human's hands; keep the caret where
+  // it was so an arriving reply does not interrupt a sentence.
+  const focus = focusSnapshot();
+  renderHeader(state);
+  const root = document.getElementById("files");
+  if (!root) return;
+  root.innerHTML = "";
+  renderTree(state.files);
+  if (!state.files.length) {
+    root.append(el("div", "empty", "no changes in the worktree"));
+    restoreFocus(focus);
+    return;
+  }
+  renderFiles(root, state.files, state.viewMode || "inline");
+  restoreTransientUi(focus);
 }
 
-function gotoThread(dir: 1 | -1): void {
-  // Diff order including resolved threads: the cursor keeps its place when the
-  // thread under it is ticked off, so "next" reaches the one after it.
-  const next = stepId(unresolvedThreadIds(), currentThreadId, dir, allThreadIds());
-  if (!next) return;
-  currentThreadId = next;
-  const box = threadElement(next);
-  if (box) jumpTo(box);
-  refreshThreadNav();
+function onClick(id: string, fn: () => void): void {
+  document.getElementById(id)?.addEventListener("click", () => {
+    fn();
+  });
+}
+
+function bindNavButtons(): void {
+  onClick("threadPrev", () => {
+    gotoThread(-1);
+  });
+  onClick("threadNext", () => {
+    gotoThread(1);
+  });
+  onClick("findPrev", () => {
+    stepFind(-1);
+  });
+  onClick("findNext", () => {
+    stepFind(1);
+  });
+  onClick("findToggle", toggleFindBar);
+  onClick("findClose", closeFind);
+}
+
+function bindFindInput(): void {
+  const input = document.getElementById("findInput");
+  if (!(input instanceof HTMLInputElement)) return;
+  input.addEventListener("input", () => {
+    runFind(input.value);
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      stepFind(e.shiftKey ? -1 : 1);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      closeFind();
+    }
+  });
+}
+
+function onNavHotkey(e: KeyboardEvent): void {
+  // Cmd/Ctrl+F is what a reviewer's hands already do; the host's own find
+  // widget never surfaced in this webview, so the form answers for it.
+  if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
+    e.preventDefault();
+    toggleFindBar();
+    return;
+  }
+  // Esc closes the bar from anywhere, including after a click into the diff.
+  if (e.key === "Escape" && isFindOpen()) {
+    closeFind();
+    return;
+  }
+  const target = e.target as HTMLElement | null;
+  const typing =
+    target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+  if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "/") {
+    e.preventDefault();
+    openFind();
+  } else if (e.key === "n") {
+    e.preventDefault();
+    gotoThread(1);
+  } else if (e.key === "p") {
+    e.preventDefault();
+    gotoThread(-1);
+  }
 }
 
 function bindNavigation(): void {
-  document.getElementById("threadPrev")?.addEventListener("click", () => {
-    gotoThread(-1);
-  });
-  document.getElementById("threadNext")?.addEventListener("click", () => {
-    gotoThread(1);
-  });
-  document.getElementById("findPrev")?.addEventListener("click", () => {
-    stepFind(-1);
-  });
-  document.getElementById("findNext")?.addEventListener("click", () => {
-    stepFind(1);
-  });
-
-  document.getElementById("findToggle")?.addEventListener("click", () => {
-    toggleFindBar();
-  });
-  document.getElementById("findClose")?.addEventListener("click", () => {
-    closeFind();
-  });
-
-  const input = document.getElementById("findInput");
-  if (input instanceof HTMLInputElement) {
-    input.addEventListener("input", () => {
-      runFind(input.value);
-    });
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        stepFind(e.shiftKey ? -1 : 1);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        closeFind();
-      }
-    });
-  }
-
-  document.addEventListener("keydown", (e) => {
-    // Cmd/Ctrl+F is what a reviewer's hands already do; the host's own find
-    // widget never surfaced in this webview, so the form answers for it.
-    if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
-      e.preventDefault();
-      toggleFindBar();
-      return;
-    }
-    // Esc closes the bar from anywhere, including after a click into the diff.
-    if (e.key === "Escape" && isFindOpen()) {
-      closeFind();
-      return;
-    }
-    const target = e.target as HTMLElement | null;
-    const typing =
-      target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
-    if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key === "/") {
-      e.preventDefault();
-      openFind();
-    } else if (e.key === "n") {
-      e.preventDefault();
-      gotoThread(1);
-    } else if (e.key === "p") {
-      e.preventDefault();
-      gotoThread(-1);
-    }
-  });
+  bindNavButtons();
+  bindFindInput();
+  document.addEventListener("keydown", onNavHotkey);
   refreshThreadNav();
 }
 
@@ -290,62 +213,7 @@ bindTreeHotkey();
 applyTreeWidth();
 bindTreeResizer();
 bindNavigation();
-
-// Native text selection → floating "Comment" bubble. Select any code (part of a
-// line or across lines) and a bubble offers to comment on the spanned range.
-function rowOf(node: Node | null): HTMLElement | null {
-  const elt = node?.nodeType === 3 ? node.parentElement : (node as Element | null);
-  return (elt?.closest(".ln, .gcode") as HTMLElement | null) ?? null;
-}
-let bubble: HTMLElement | null = null;
-function clearBubble(): void {
-  bubble?.remove();
-  bubble = null;
-}
-// Constrain a split selection to one side: on mousedown, tag which side is being
-// selected so user-select disables the other (kills the mirrored cross-side drag).
-document.addEventListener("mousedown", (e) => {
-  document.querySelectorAll(".splitgrid").forEach((g) => {
-    g.classList.remove("sel-old", "sel-new");
-  });
-  const cell =
-    e.target instanceof Element ? e.target.closest<HTMLElement>(".gcode[data-side]") : null;
-  const side = cell?.dataset.side;
-  if (side) cell?.closest(".splitgrid")?.classList.add(side === "old" ? "sel-old" : "sel-new");
-});
-document.addEventListener("mouseup", (e) => {
-  // Don't dismiss the bubble when the click is the bubble itself — let its
-  // onclick fire (otherwise the button is unclickable).
-  if (bubble && e.target instanceof Node && bubble.contains(e.target)) return;
-  clearBubble();
-  const selObj = window.getSelection();
-  if (!selObj || selObj.isCollapsed || selObj.rangeCount === 0 || !selObj.toString().trim()) return;
-  const startRow = rowOf(selObj.anchorNode);
-  const endRow = rowOf(selObj.focusNode);
-  const file = startRow?.dataset.file;
-  if (!file) return;
-  // Comment on the side where the selection started (old = deleted, new = added).
-  const side = (startRow?.dataset.side as "old" | "new" | undefined) ?? "new";
-  const nums = [startRow, endRow]
-    .map((r) => (r?.dataset.line ? parseInt(r.dataset.line, 10) : NaN))
-    .filter((n) => !Number.isNaN(n));
-  if (nums.length === 0) return;
-  const startLine = Math.min(...nums);
-  const endLine = Math.max(...nums);
-  const snippet = selObj.toString();
-  const label = startLine === endLine ? `line ${startLine}` : `lines ${startLine}–${endLine}`;
-  const b = el("button", "sel-bubble primary", `💬 Comment on ${label}`);
-  // Anchor at the cursor where the drag ended — on the active side — instead of a
-  // multi-row range rect that geometrically spans both columns (= always left).
-  b.style.top = `${e.clientY + window.scrollY + 8}px`;
-  b.style.left = `${e.clientX + window.scrollX}px`;
-  b.onclick = () => {
-    clearBubble();
-    openComposeAt(file, startLine, endLine, side, snippet);
-  };
-  bubble = b;
-  document.body.append(b);
-});
+bindCommentBubble();
 
 window.addEventListener("message", (e: MessageEvent) => {
   if ((e.data as Msg).type !== "state") return;
