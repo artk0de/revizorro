@@ -5,6 +5,7 @@
  *
  * Matching is literal, not regex: reviewers search for `a.b` meaning `a.b`.
  */
+import { stepIndex, jumpTo } from "./navigate.js";
 
 /** Text the human is editing, or markup with no readable text of its own. */
 const SKIP = new Set(["TEXTAREA", "INPUT", "SCRIPT", "STYLE"]);
@@ -114,4 +115,72 @@ export function markMatches(root: ParentNode, query: string): HTMLElement[] {
   const hits: HTMLElement[] = [];
   for (const t of targets) hits.push(...wrapIn(t, needle));
   return hits;
+}
+
+/*
+ * The bar's controller: the live hit list and which hit the human is parked on.
+ * A re-render throws the marks away, so the list is owned here rather than by
+ * the DOM, and rebuilt by {@link reapplyFind} after every render.
+ */
+let findHits: HTMLElement[] = [];
+let findAt = -1;
+
+function dropHits(): void {
+  findHits = [];
+  findAt = -1;
+}
+
+function paintFindPos(): void {
+  const pos = document.getElementById("findPos");
+  const input = document.getElementById("findInput");
+  const query = input instanceof HTMLInputElement ? input.value.trim() : "";
+  if (!pos) return;
+  pos.textContent = query.length < 2 ? "" : `${findAt >= 0 ? findAt + 1 : 0}/${findHits.length}`;
+}
+
+export function runFind(query: string): void {
+  const root = document.getElementById("files");
+  if (!root) return;
+  findHits = markMatches(root, query);
+  findAt = -1;
+  paintFindPos();
+}
+
+/** After a re-render the marks are gone; put them back rather than lying about a count. */
+export function reapplyFind(): void {
+  const input = document.getElementById("findInput");
+  if (!(input instanceof HTMLInputElement) || input.value.trim().length < 2) {
+    dropHits();
+    paintFindPos();
+    return;
+  }
+  const wasAt = findAt;
+  runFind(input.value);
+  findAt = Math.min(wasAt, findHits.length - 1);
+  if (findAt >= 0) findHits[findAt].classList.add("current");
+  paintFindPos();
+}
+
+export function stepFind(dir: 1 | -1): void {
+  if (findHits.length === 0) return;
+  findAt = stepIndex(findHits.length, findAt, dir);
+  for (const h of findHits) h.classList.remove("current");
+  const hit = findHits[findAt];
+  hit.classList.add("current");
+  jumpTo(hit);
+  paintFindPos();
+}
+
+export function openFind(): void {
+  setFindOpen(true);
+}
+
+export function closeFind(): void {
+  setFindOpen(false);
+  dropHits();
+}
+
+/** ⌘F and the magnifier are the same switch; closing drops the stale hit list. */
+export function toggleFindBar(): void {
+  if (!toggleFind()) dropHits();
 }
