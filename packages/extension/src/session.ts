@@ -1,4 +1,4 @@
-import { FsSessionStore, GitDiffProvider } from "@revizorro/core-adapters";
+import { FsSessionStore } from "@revizorro/core-adapters";
 import {
   startRound,
   decideCollapsed,
@@ -9,8 +9,6 @@ import {
   markInterrupted,
   isVerdictReplayable,
   scopeChanged,
-  threadsInDiff,
-  editMessage as editThreadMessage,
   type DiffFile,
 } from "@revizorro/core";
 import type {
@@ -22,7 +20,11 @@ import type {
   Side,
 } from "@revizorro/protocol";
 
+import { DiffCache } from "./diff-cache.js";
+import { FormRenderer } from "./form-renderer.js";
+import { HumanInput, maxThreadId } from "./human-input.js";
 import type { ReviewActions } from "./panel.js";
+import { openComments, verdictEvent } from "./verdict.js";
 
 /** What the form shows at a glance, read synchronously when a poll times out. */
 export interface ReviewSnapshot {
@@ -67,6 +69,9 @@ export interface ReviewIdentity {
  * owes an answer to, what the form is showing, when the round opened — so a second
  * review in the same window has its own copy of all of it rather than overwriting
  * this one's.
+ *
+ * The round's lifecycle and its verdicts live here; the diff it reviews, what its
+ * form shows, and what the human types into that form are collaborators it composes.
  */
 export class ReviewSession implements ReviewActions {
   readonly repoRoot: string;
@@ -75,14 +80,11 @@ export class ReviewSession implements ReviewActions {
   readonly baseRef: string;
   private readonly branchName: string;
   private readonly store: FsSessionStore;
-  private readonly diffs: GitDiffProvider;
-  private lastDiff: DiffFile[] = [];
+  private readonly diff: DiffCache;
   /** Thread ids awaiting an agent reply (Ask agent) — drives the form's loader. */
   private readonly pending = new Set<string>();
-  /** Last rendered state, summarised for the idle event (read synchronously). */
-  private lastSnapshot?: ReviewSnapshot;
-  /** When the round on screen opened, read synchronously when an event goes out. */
-  private openedAt?: number;
+  private readonly form: FormRenderer;
+  private readonly input: HumanInput;
 
   constructor(
     identity: ReviewIdentity,
@@ -94,11 +96,15 @@ export class ReviewSession implements ReviewActions {
     this.branchName = identity.branch;
     this.baseRef = identity.baseRef;
     this.store = new FsSessionStore(identity.repoRoot, identity.branch);
-    // The diff source is baked into the provider, so a different scope is a
-    // different session rather than a mutation of this one.
-    this.diffs = new GitDiffProvider(identity.repoRoot, identity.baseRef || undefined, {
-      stagedOnly: identity.stagedOnly,
-    });
+    this.diff = new DiffCache(identity);
+    this.form = new FormRenderer(this, deps, this.diff);
+    this.input = new HumanInput(
+      identity.worktreeId,
+      this.store,
+      this.pending,
+      this.form,
+      deps.emit,
+    );
   }
 
   /**
@@ -138,11 +144,11 @@ export class ReviewSession implements ReviewActions {
   }
 
   snapshot(): ReviewSnapshot | undefined {
-    return this.lastSnapshot;
+    return this.form.snapshot();
   }
 
   roundOpenedAt(): number | undefined {
-    return this.openedAt;
+    return this.form.roundOpenedAt();
   }
 
   /** What this session is reviewing — persisted on the round so scope changes are visible. */
@@ -159,15 +165,7 @@ export class ReviewSession implements ReviewActions {
     if (cur?.status === "open" && !cur.interrupted && !scopeChanged(cur, this.scope())) {
       // Always re-read the diff: the agent calls review again precisely because the
       // tree moved on (fixes applied, files staged, work committed).
-      this.lastDiff = await this.diffs.diff(this.worktreeId);
-      // And re-earn the ticks. A viewed mark says "I have read this diff"; once the
-      // agent rewrites the file, the human has not read what is now on screen, and a
-      // tick left standing invites them to approve code nobody looked at. Continuing
-      // a round has to reconcile the marks the same way starting one does.
-      const { files } = decideCollapsed(cur.files, this.lastDiff);
-      const reconciled = { ...cur, files };
-      await this.store.save(reconciled);
-      this.onFormOpened(reconciled);
+      await this.reopenAgainstTree(cur);
       return;
     }
     // A verdict decided moments ago that never reached an agent — the human hit
@@ -176,11 +174,11 @@ export class ReviewSession implements ReviewActions {
     // last one, so a stale approval must not be served here.
     if (cur && isVerdictReplayable(cur, Date.now())) {
       await this.store.save(markVerdictDelivered(cur));
-      if (this.lastDiff.length === 0) this.lastDiff = await this.diffs.diff(this.worktreeId);
-      this.deps.emit(this.worktreeId, this.verdictEvent(cur));
+      await this.diff.ensure();
+      this.deps.emit(this.worktreeId, verdictEvent(cur, this.diff.paths()));
       return;
     }
-    this.onFormOpened(await this.newRound());
+    this.form.open(await this.newRound());
   }
 
   /**
@@ -191,13 +189,9 @@ export class ReviewSession implements ReviewActions {
   async restore(): Promise<boolean> {
     const s = await this.store.load(this.worktreeId);
     if (s?.status !== "open" || s.interrupted) return false;
-    this.lastDiff = await this.diffs.diff(this.worktreeId);
     // The tree may well have moved while the window was down, so ticks are re-earned
     // the same way any other re-read of the diff earns them.
-    const { files } = decideCollapsed(s.files, this.lastDiff);
-    const reconciled = { ...s, files };
-    await this.store.save(reconciled);
-    this.onFormOpened(reconciled);
+    await this.reopenAgainstTree(s);
     return true;
   }
 
@@ -209,7 +203,7 @@ export class ReviewSession implements ReviewActions {
    */
   async rerenderIfOpen(): Promise<void> {
     const s = await this.store.load(this.worktreeId);
-    if (s?.status === "open" && !s.interrupted) this.onStateRendered(s);
+    if (s?.status === "open" && !s.interrupted) this.form.render(s);
   }
 
   /** Apply an agent push: append replies/comments, clear pending loaders, persist, re-render. */
@@ -221,7 +215,7 @@ export class ReviewSession implements ReviewActions {
       this.deps.emit(this.worktreeId, { type: "closed" });
       return;
     }
-    let n = this.maxId(cur.threads);
+    let n = maxThreadId(cur.threads);
     const next = applyPush(cur, push, () => `t${++n}`);
     for (const r of push.replies) this.pending.delete(r.threadId);
     await this.store.save(next);
@@ -233,12 +227,12 @@ export class ReviewSession implements ReviewActions {
     }
     // A push can be the first call on a fresh session (e.g. the agent flipped
     // --staged-only mid-round), and rendering that cache empty would blank the form.
-    if (this.lastDiff.length === 0) this.lastDiff = await this.diffs.diff(this.worktreeId);
+    await this.diff.ensure();
     // An agent push during an OPEN review must (re)show the form — the human may
     // have closed or reloaded the window (e.g. mid-Clarify). A decided session
     // (approved/changes_requested) stays closed: onState only re-renders if open.
     if (next.status === "open") {
-      this.onFormOpened(next);
+      this.form.open(next);
       return;
     }
     // The round is already decided and its form is gone — this is the agent pushing
@@ -246,7 +240,7 @@ export class ReviewSession implements ReviewActions {
     // downstream will ever produce an event for it, so answer now: without this the
     // call parks on the poll for the whole ceiling at the moment the agent has work
     // to get on with.
-    this.onStateRendered(next);
+    this.form.render(next);
     this.deps.emit(this.worktreeId, { type: "idle" });
   }
 
@@ -280,21 +274,17 @@ export class ReviewSession implements ReviewActions {
   async clarify(): Promise<void> {
     const cur = await this.store.load(this.worktreeId);
     if (!cur) return;
-    if (this.lastDiff.length === 0) this.lastDiff = await this.diffs.diff(this.worktreeId);
-    const comments = this.openComments(cur);
+    await this.diff.ensure();
+    const comments = openComments(cur, this.diff.paths());
     // Replace rather than add: the loaders describe what the agent was just
     // handed. Adding leaves every earlier question the agent never answered
     // counted forever, so one open comment reads as three.
     this.pending.clear();
     for (const { threadId } of comments) this.pending.add(threadId);
-    this.onStateRendered(cur);
+    this.form.render(cur);
     this.deps.emit(this.worktreeId, { type: "decision", verdict: "clarify", comments });
   }
 
-  /**
-   * Human opens a new thread on a line. `ask=true` wakes the agent for an immediate
-   * reply (question event); otherwise it is a passive comment.
-   */
   async addHumanComment(
     file: string,
     range: FileRange,
@@ -302,109 +292,37 @@ export class ReviewSession implements ReviewActions {
     ask = false,
     side: Side = "new",
   ): Promise<void> {
-    const cur = await this.store.load(this.worktreeId);
-    if (!cur) return;
-    const threadId = `t${this.maxId(cur.threads) + 1}`;
-    const next: SessionState = {
-      ...cur,
-      threads: [
-        ...cur.threads,
-        { id: threadId, file, side, range, messages: [{ author: "human", body }], resolved: false },
-      ],
-    };
-    if (ask) this.pending.add(threadId);
-    await this.store.save(next);
-    this.onStateRendered(next);
-    // Only "Ask agent" asks for the agent's attention. A passive comment is a note
-    // the human leaves mid-read: it is already saved, and it reaches the agent
-    // inside the verdict. Waking the loop for it would send the agent off fixing
-    // half a review before the human has decided anything.
-    // Held when the agent is between calls (off writing the previous answer):
-    // a question the human asked must never be silently dropped.
-    if (ask) {
-      this.deps.emit(
-        this.worktreeId,
-        { type: "question", threadId, file, side, range, body },
-        true,
-      );
-    }
+    await this.input.addHumanComment(file, range, body, ask, side);
   }
 
-  /** Human replies inside an existing thread. `ask=true` wakes the agent now. */
   async addHumanReply(threadId: string, body: string, ask = false): Promise<void> {
-    const cur = await this.store.load(this.worktreeId);
-    if (!cur) return;
-    const thread = cur.threads.find((t) => t.id === threadId);
-    if (!thread) return;
-    const next: SessionState = {
-      ...cur,
-      threads: cur.threads.map((t) =>
-        t.id === threadId ? { ...t, messages: [...t.messages, { author: "human", body }] } : t,
-      ),
-    };
-    if (ask) this.pending.add(threadId);
-    await this.store.save(next);
-    this.onStateRendered(next);
-    // Same rule as a new thread: only Ask agent wakes the loop. A plain reply is
-    // recorded and travels with the verdict.
-    if (ask) {
-      this.deps.emit(
-        this.worktreeId,
-        {
-          type: "question",
-          threadId,
-          file: thread.file,
-          side: thread.side,
-          range: thread.range,
-          body,
-        },
-        true,
-      );
-    }
+    await this.input.addHumanReply(threadId, body, ask);
   }
 
-  /** Edit one of the human's own messages in a thread; persist and re-render. */
   async editMessage(threadId: string, index: number, body: string): Promise<void> {
-    const cur = await this.store.load(this.worktreeId);
-    if (!cur) return;
-    const next = editThreadMessage(cur, threadId, index, body);
-    await this.store.save(next);
-    this.onStateRendered(next);
+    await this.input.editMessage(threadId, index, body);
   }
 
-  /** Mark a thread resolved/unresolved; persist and re-render. Resolved threads drop from the next round. */
   async resolveThread(threadId: string, resolved: boolean): Promise<void> {
-    const cur = await this.store.load(this.worktreeId);
-    if (!cur) return;
-    const next: SessionState = {
-      ...cur,
-      threads: cur.threads.map((t) => (t.id === threadId ? { ...t, resolved } : t)),
-    };
-    // A closed thread has nothing left to wait for: the human stopped waiting
-    // for the answer, so it must stop counting as one the agent owes.
-    if (resolved) this.pending.delete(threadId);
-    await this.store.save(next);
-    this.onStateRendered(next);
+    await this.input.resolveThread(threadId, resolved);
   }
 
-  /** Human marks/unmarks a file as viewed; persist and re-render (no event). */
   async setViewed(file: string, viewed: boolean): Promise<void> {
-    const cur = await this.store.load(this.worktreeId);
-    if (!cur?.files[file]) return;
-    const next: SessionState = {
-      ...cur,
-      files: { ...cur.files, [file]: { ...cur.files[file], viewed } },
-    };
-    await this.store.save(next);
-    this.onStateRendered(next);
+    await this.input.setViewed(file, viewed);
   }
 
-  /** Highest numeric suffix across existing thread ids — so new ids never collide after a restart. */
-  private maxId(threads: SessionState["threads"]): number {
-    return threads.reduce((m, t) => {
-      const n = parseInt(t.id.replace(/\D/g, ""), 10);
-      return Number.isFinite(n) ? Math.max(m, n) : m;
-    }, 0);
+  /**
+   * Re-read the diff and show an open round against it. A viewed mark says "I have
+   * read this diff"; once the agent rewrites the file, the human has not read what is
+   * now on screen, and a tick left standing invites them to approve code nobody
+   * looked at. Continuing a round has to reconcile the marks the same way starting
+   * one does.
+   */
+  private async reopenAgainstTree(s: SessionState): Promise<void> {
+    const { files } = decideCollapsed(s.files, await this.diff.reread());
+    const reconciled = { ...s, files };
+    await this.store.save(reconciled);
+    this.form.open(reconciled);
   }
 
   /** Recompute the diff and open a fresh review round (collapsing unchanged viewed files). */
@@ -413,51 +331,18 @@ export class ReviewSession implements ReviewActions {
     // claim the agent is answering questions it has already moved on from.
     this.pending.clear();
     const prev = await this.store.load(this.worktreeId);
-    this.lastDiff = await this.diffs.diff(this.worktreeId);
-    const s = startRound(prev, this.worktreeId, this.lastDiff, this.scope(), Date.now());
+    const diff = await this.diff.reread();
+    const s = startRound(prev, this.worktreeId, diff, this.scope(), Date.now());
     await this.store.save(s);
     return s;
-  }
-
-  /**
-   * Open threads handed to the agent alongside a verdict (or a clarify request) —
-   * only those on files in the diff under review. The session keeps threads from
-   * earlier rounds and other scopes, and shipping all of them would tell the agent
-   * to go fix work that shipped days ago.
-   */
-  private openComments(s: SessionState): {
-    threadId: string;
-    file: string;
-    side: Side;
-    range: FileRange;
-    body: string;
-  }[] {
-    return threadsInDiff(
-      s,
-      this.lastDiff.map((f) => f.path),
-    ).map((t) => ({
-      threadId: t.id,
-      file: t.file,
-      side: t.side,
-      range: t.range,
-      body: t.messages.map((m) => m.body).join("\n"),
-    }));
-  }
-
-  private verdictEvent(s: SessionState): ReviewEvent {
-    return s.status === "approved"
-      ? { type: "decision", verdict: "approved", comments: [] }
-      : { type: "decision", verdict: "changes_requested", comments: this.openComments(s) };
   }
 
   /** Emit a verdict; if no agent was listening, leave it briefly replayable. */
   private async deliverVerdict(s: SessionState): Promise<void> {
     // Only changes_requested carries comments, so only it needs the diff to scope
     // them by — an approval goes out immediately rather than after a git walk.
-    if (s.status !== "approved" && this.lastDiff.length === 0) {
-      this.lastDiff = await this.diffs.diff(this.worktreeId);
-    }
-    if (this.deps.emit(this.worktreeId, this.verdictEvent(s))) return;
+    if (s.status !== "approved") await this.diff.ensure();
+    if (this.deps.emit(this.worktreeId, verdictEvent(s, this.diff.paths()))) return;
     await this.store.save(markVerdictPending(s, Date.now()));
   }
 
@@ -469,28 +354,5 @@ export class ReviewSession implements ReviewActions {
     const next = markVerdictDelivered(applyDecision(cur, verdict));
     await this.store.save(next);
     return next;
-  }
-
-  /** Render into the open form, remembering what it shows for the idle snapshot. */
-  private onStateRendered(s: SessionState): void {
-    this.remember(s);
-    this.deps.renderState(this, s, this.lastDiff);
-  }
-
-  /** Open (or re-open) the form, remembering what it shows for the idle snapshot. */
-  private onFormOpened(s: SessionState): void {
-    this.remember(s);
-    this.deps.openForm(this, s, this.lastDiff);
-  }
-
-  private remember(s: SessionState): void {
-    this.openedAt = s.openedAt;
-    const paths = new Set(this.lastDiff.map((f) => f.path));
-    this.lastSnapshot = {
-      round: s.round,
-      files: this.lastDiff.length,
-      openThreads: s.threads.filter((t) => !t.resolved && paths.has(t.file)).length,
-      viewedFiles: this.lastDiff.filter((f) => s.files[f.path]?.viewed).length,
-    };
   }
 }
