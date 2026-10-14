@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { ReviewEvent } from "@revizorro/protocol";
 import { PushPayload } from "@revizorro/protocol";
 import type { ReviewOptions } from "@revizorro/core";
@@ -24,7 +24,8 @@ export class HttpReviewHost {
   constructor(options: HttpReviewHostOptions = {}) {
     const fromEnv = Number(process.env.REVIZORRO_POLL_TIMEOUT_MS);
     this.pollTimeoutMs =
-      options.pollTimeoutMs ?? (Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : DEFAULT_POLL_TIMEOUT_MS);
+      options.pollTimeoutMs ??
+      (Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : DEFAULT_POLL_TIMEOUT_MS);
   }
 
   private server?: Server;
@@ -147,73 +148,7 @@ export class HttpReviewHost {
 
   async start(): Promise<number> {
     const server = createServer((req, res) => {
-      if (req.method !== "POST" || req.url !== "/review") {
-        res.statusCode = 404;
-        res.end();
-        return;
-      }
-      let body = "";
-      req.on("data", (chunk: Buffer) => {
-        body += chunk.toString();
-      });
-      req.on("end", () => {
-        const { worktreeId, repoRoot, push, opts } = JSON.parse(body || "{}") as {
-          worktreeId: string;
-          repoRoot: string;
-          push?: unknown;
-          opts?: ReviewOptions;
-        };
-        // Register the response waiter BEFORE invoking onPushReceived: a push handler may
-        // synchronously emit an event, which must find a waiting client.
-        // Seeded on the first call for this worktree — the moment the form opens —
-        // so inactivity is never measured from the epoch. Only when absent: a
-        // re-armed poll is the agent, not the human.
-        if (!this.lastActivityAt.has(worktreeId)) this.lastActivityAt.set(worktreeId, Date.now());
-        const list = this.waiters.get(worktreeId) ?? [];
-        const waiter: Waiter = (event) => {
-          clearTimeout(timer);
-          res.setHeader("content-type", "application/json");
-          res.end(JSON.stringify(this.timed(worktreeId, event)));
-        };
-        list.push(waiter);
-        this.waiters.set(worktreeId, list);
-        // Bound the poll: pull this waiter out of the queue and answer `idle` so the
-        // agent's command returns and the loop re-arms.
-        const timer = setTimeout(() => {
-          const queue = this.waiters.get(worktreeId);
-          const at = queue?.indexOf(waiter) ?? -1;
-          if (!queue || at < 0) return;
-          queue.splice(at, 1);
-          const event = this.idleEvent?.(worktreeId) ?? { type: "idle" as const };
-          const since = this.lastActivityAt.get(worktreeId);
-          waiter(
-            event.type === "idle" && since !== undefined
-              ? { ...event, inactiveForMs: Date.now() - since }
-              : event,
-          );
-        }, this.pollTimeoutMs);
-        timer.unref?.();
-        // A cancelled command or a closed terminal leaves its request behind. Left in
-        // the queue it stays first in line and swallows the next event — the human
-        // approves, and the agent that is actually listening never hears about it.
-        res.on("close", () => {
-          const queue = this.waiters.get(worktreeId);
-          const at = queue?.indexOf(waiter) ?? -1;
-          if (queue && at >= 0) queue.splice(at, 1);
-          this.waitingChanged?.(worktreeId, this.isWaiting(worktreeId));
-        });
-        this.waitingChanged?.(worktreeId, true);
-        // A push is a reply delivery; a plain review is a request to (re)open the
-        // form — so a late push can never resurrect a closed form.
-        if (push === undefined) {
-          this.onReviewRequest?.(worktreeId, repoRoot, opts ?? {});
-        } else {
-          this.onPushReceived?.(worktreeId, repoRoot, PushPayload.parse(push), opts ?? {});
-        }
-        // Anything the human raised while this agent was away is answered now,
-        // ahead of it settling into another long poll.
-        this.deliverHeld(worktreeId);
-      });
+      this.handleRequest(req, res);
     });
     this.server = server;
     return new Promise((resolve) =>
@@ -221,6 +156,97 @@ export class HttpReviewHost {
         resolve((server.address() as { port: number }).port);
       }),
     );
+  }
+
+  /** The one route: `POST /review`. Anything else is a 404 with an empty body. */
+  private handleRequest(req: IncomingMessage, res: ServerResponse): void {
+    if (req.method !== "POST" || req.url !== "/review") {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    let body = "";
+    req.on("data", (chunk: Buffer) => {
+      body += chunk.toString();
+    });
+    req.on("end", () => {
+      this.handleReview(body, res);
+    });
+  }
+
+  /** One agent call: park it as a waiter, then let the host act on the request. */
+  private handleReview(body: string, res: ServerResponse): void {
+    const { worktreeId, repoRoot, push, opts } = JSON.parse(body || "{}") as {
+      worktreeId: string;
+      repoRoot: string;
+      push?: unknown;
+      opts?: ReviewOptions;
+    };
+    // Register the response waiter BEFORE invoking onPushReceived: a push handler may
+    // synchronously emit an event, which must find a waiting client.
+    // Seeded on the first call for this worktree — the moment the form opens —
+    // so inactivity is never measured from the epoch. Only when absent: a
+    // re-armed poll is the agent, not the human.
+    if (!this.lastActivityAt.has(worktreeId)) this.lastActivityAt.set(worktreeId, Date.now());
+    this.parkWaiter(worktreeId, res);
+    this.waitingChanged?.(worktreeId, true);
+    // A push is a reply delivery; a plain review is a request to (re)open the
+    // form — so a late push can never resurrect a closed form.
+    if (push === undefined) {
+      this.onReviewRequest?.(worktreeId, repoRoot, opts ?? {});
+    } else {
+      this.onPushReceived?.(worktreeId, repoRoot, PushPayload.parse(push), opts ?? {});
+    }
+    // Anything the human raised while this agent was away is answered now,
+    // ahead of it settling into another long poll.
+    this.deliverHeld(worktreeId);
+  }
+
+  /**
+   * Queue a waiter that answers this response with the next event, bounded by the
+   * poll timeout and withdrawn if the caller goes away first.
+   */
+  private parkWaiter(worktreeId: string, res: ServerResponse): void {
+    const list = this.waiters.get(worktreeId) ?? [];
+    const waiter: Waiter = (event) => {
+      clearTimeout(timer);
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify(this.timed(worktreeId, event)));
+    };
+    list.push(waiter);
+    this.waiters.set(worktreeId, list);
+    // Bound the poll: pull this waiter out of the queue and answer `idle` so the
+    // agent's command returns and the loop re-arms.
+    const timer = setTimeout(() => {
+      if (!this.withdraw(worktreeId, waiter)) return;
+      waiter(this.idleAnswer(worktreeId));
+    }, this.pollTimeoutMs);
+    timer.unref?.();
+    // A cancelled command or a closed terminal leaves its request behind. Left in
+    // the queue it stays first in line and swallows the next event — the human
+    // approves, and the agent that is actually listening never hears about it.
+    res.on("close", () => {
+      this.withdraw(worktreeId, waiter);
+      this.waitingChanged?.(worktreeId, this.isWaiting(worktreeId));
+    });
+  }
+
+  /** Take a waiter out of its queue. Returns false when it was already gone. */
+  private withdraw(worktreeId: string, waiter: Waiter): boolean {
+    const queue = this.waiters.get(worktreeId);
+    const at = queue?.indexOf(waiter) ?? -1;
+    if (!queue || at < 0) return false;
+    queue.splice(at, 1);
+    return true;
+  }
+
+  /** What a timed-out poll answers with: the host's idle event, plus how long the human has been away. */
+  private idleAnswer(worktreeId: string): ReviewEvent {
+    const event = this.idleEvent?.(worktreeId) ?? { type: "idle" as const };
+    const since = this.lastActivityAt.get(worktreeId);
+    return event.type === "idle" && since !== undefined
+      ? { ...event, inactiveForMs: Date.now() - since }
+      : event;
   }
 
   async stop(): Promise<void> {
