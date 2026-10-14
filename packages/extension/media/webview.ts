@@ -1,5 +1,5 @@
-import { langFor, hl, renderMarkdown } from "./view/highlight.js";
-import { el, codeSpan, onSubmit, autoGrow } from "./view/dom.js";
+import { langFor } from "./view/highlight.js";
+import { el, codeSpan } from "./view/dom.js";
 import { parsePatch, withExpansions, LOCKFILE, EXPAND_STEP, type Line } from "./view/patch.js";
 import { setBridge, send } from "./view/bridge.js";
 import { trackActivity } from "./view/activity.js";
@@ -12,15 +12,7 @@ import {
   bindTreeResizer,
   bindTreeHotkey,
 } from "./view/tree.js";
-import {
-  bindDraft,
-  clearDraft,
-  markEditorOpen,
-  markEditorClosed,
-  isEditorOpen,
-  focusSnapshot,
-  restoreFocus,
-} from "./view/drafts.js";
+import { focusSnapshot, restoreFocus } from "./view/drafts.js";
 import {
   unresolvedThreadIds,
   allThreadIds,
@@ -38,7 +30,13 @@ import {
   closeFind,
   toggleFindBar,
 } from "./view/find.js";
-import { composeDraftKey, replyDraftKey, editDraftKey } from "@revizorro/core";
+import {
+  renderThread,
+  openCompose,
+  openComposeAt,
+  reopenCompose,
+  type ThreadView,
+} from "./view/thread.js";
 
 declare function acquireVsCodeApi(): { postMessage: (m: unknown) => void };
 const vscode = acquireVsCodeApi();
@@ -67,14 +65,7 @@ interface FileView {
   content: string;
   binary: boolean;
   viewed: boolean;
-  threads: {
-    id: string;
-    line: number;
-    side: "old" | "new";
-    resolved: boolean;
-    pending: boolean;
-    messages: { author: string; body: string }[];
-  }[];
+  threads: ThreadView[];
 }
 
 // How many lines each expand control reveals per click, and how many context
@@ -83,16 +74,6 @@ const expandedGaps = new Map<string, number>();
 
 let state: Msg | null = null;
 let sel: { file: string; start: number; end: number } | null = null;
-// The composer currently open, if any. An incoming agent reply re-renders the
-// whole form; this lets render() reopen the composer (with its draft) instead of
-// silently dropping what the human was typing.
-let activeCompose: {
-  file: string;
-  startLine: number;
-  endLine: number;
-  side: "old" | "new";
-  snippet?: string;
-} | null = null;
 
 function selectLine(file: string, line: number, shift: boolean): void {
   if (shift && sel?.file === file) sel.end = line;
@@ -122,12 +103,6 @@ function highlightSelection(): void {
     const ln = row.dataset.line ? parseInt(row.dataset.line, 10) : NaN;
     if (row.dataset.file === cur.file && ln >= lo && ln <= hi) row.classList.add("sel");
   });
-}
-
-function renderBody(body: string): HTMLElement {
-  const wrap = el("div", "msg-body");
-  wrap.innerHTML = renderMarkdown(body);
-  return wrap;
 }
 
 function inlineBody(f: FileView, lines: Line[], lang: string | null): HTMLElement {
@@ -302,206 +277,6 @@ function splitBody(f: FileView, lines: Line[], lang: string | null): HTMLElement
   return grid;
 }
 
-function avatar(author: string): HTMLElement {
-  const a = el("span", `avatar ${author === "agent" ? "agent" : "human"}`);
-  a.textContent = author === "agent" ? "R" : "Y";
-  return a;
-}
-
-function renderThread(t: FileView["threads"][number]): HTMLElement {
-  const box = el("div", `thread${t.resolved ? " resolved" : ""}`);
-  // Thread navigation keeps its place across re-renders by id, not by position:
-  // an agent reply arriving mid-walk must not shift the human somewhere else.
-  box.dataset.id = t.id;
-  const bar = el("div", "thread-bar");
-  const caret = el("span", "tcaret", t.resolved ? "▸" : "▾");
-  bar.append(
-    caret,
-    el("span", "status", t.resolved ? "✓ resolved" : `${t.messages.length} comment(s)`),
-    el("span", "grow"),
-  );
-  const resolveBtn = el("button", "ghost", t.resolved ? "Unresolve" : "Resolve");
-  resolveBtn.onclick = (e) => {
-    e.stopPropagation();
-    send({ type: "resolve", threadId: t.id, resolved: !t.resolved });
-  };
-  bar.append(resolveBtn);
-  box.append(bar);
-
-  const content = el("div", "thread-content");
-  content.style.display = t.resolved ? "none" : "block";
-  bar.onclick = () => {
-    const open = content.style.display === "none";
-    content.style.display = open ? "block" : "none";
-    caret.textContent = open ? "▾" : "▸";
-  };
-
-  // Edit your own posts in an unresolved thread: a pencil on each human message,
-  // plus an ↑ hotkey from the reply box that opens the newest one for editing.
-  const editFns: (() => void)[] = [];
-  t.messages.forEach((m, i) => {
-    // The first message is the root comment; everything after is a reply —
-    // indent replies under a left rail so the conversation reads as a thread.
-    const msg = el("div", i === 0 ? "msg" : "msg reply");
-    const head = el("div", "msg-head");
-    head.append(avatar(m.author), el("span", "who", m.author === "agent" ? "revizorro" : "you"));
-    const bodyEl = renderBody(m.body);
-    const editKey = editDraftKey(t.id, i);
-    const startEdit = () => {
-      if (msg.querySelector(".msg-edit")) return;
-      markEditorOpen(editKey);
-      const editor = el("div", "msg-edit");
-      const ta = document.createElement("textarea");
-      ta.className = "edit-ta";
-      ta.value = m.body;
-      // A draft only exists if this edit was interrupted by a re-render.
-      bindDraft(ta, editKey);
-      const restore = () => {
-        markEditorClosed(editKey);
-        editor.replaceWith(bodyEl);
-      };
-      const saveFn = () => {
-        const v = ta.value.trim();
-        if (v) send({ type: "editMessage", threadId: t.id, index: i, body: v });
-        restore();
-      };
-      const save = el("button", "primary", "Save");
-      const cancel = el("button", "ghost cancel", "Cancel");
-      save.onclick = saveFn;
-      cancel.onclick = restore;
-      onSubmit(ta, saveFn, saveFn);
-      ta.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") restore();
-      });
-      const acts = el("div", "compose-actions");
-      acts.append(save, cancel);
-      editor.append(ta, acts);
-      bodyEl.replaceWith(editor);
-      autoGrow(ta);
-      ta.focus();
-    };
-    if (m.author === "human" && !t.resolved) {
-      editFns.push(startEdit);
-      const edit = el("button", "ghost icon-edit", "✏️");
-      edit.title = "Edit (↑)";
-      edit.onclick = startEdit;
-      head.append(el("span", "grow"), edit);
-    }
-    msg.append(head, bodyEl);
-    content.append(msg);
-    // This message was being edited when the form re-rendered — reopen the editor
-    // so the human keeps typing where they left off.
-    if (isEditorOpen(editKey)) queueMicrotask(startEdit);
-  });
-
-  if (t.pending) {
-    const loader = el("div", "loader");
-    loader.append(el("span", "spinner"), document.createTextNode(" revizorro is replying…"));
-    content.append(loader);
-  }
-
-  if (!t.resolved) {
-    const composer = el("div", "reply-box");
-    const ta = document.createElement("textarea");
-    ta.rows = 1;
-    ta.placeholder = "Reply…  (⌘/Ctrl+Enter reply · ⌥+Enter ask · ↑ edit last)";
-    bindDraft(ta, replyDraftKey(t.id));
-    const postReply = (type: "reply" | "askReply") => {
-      const v = ta.value.trim();
-      if (v) send({ type, threadId: t.id, body: v });
-      ta.value = "";
-      clearDraft(replyDraftKey(t.id));
-    };
-    const replyFn = () => {
-      postReply("reply");
-    };
-    const askFn = () => {
-      postReply("askReply");
-    };
-    const reply = el("button", undefined, "Reply");
-    const ask = el("button", "primary", "Ask agent");
-    reply.onclick = replyFn;
-    ask.onclick = askFn;
-    onSubmit(ta, replyFn, askFn);
-    // ↑ on an empty reply box edits your most recent post (terminal/Slack style).
-    ta.addEventListener("keydown", (e) => {
-      if (e.key === "ArrowUp" && ta.value === "" && editFns.length > 0) {
-        e.preventDefault();
-        editFns[editFns.length - 1]();
-      }
-    });
-    autoGrow(ta);
-    composer.append(ta, reply, ask);
-    content.append(composer);
-  }
-  box.append(content);
-  return box;
-}
-
-function openCompose(
-  row: HTMLElement,
-  file: string,
-  startLine: number,
-  endLine: number,
-  side: "old" | "new",
-  snippet?: string,
-): void {
-  // Only one composer open at a time.
-  document.querySelectorAll(".compose").forEach((e) => {
-    e.remove();
-  });
-  activeCompose = { file, startLine, endLine, side, snippet };
-  const box = el("div", `compose ${side}`);
-  if (snippet) {
-    const pre = el("pre", "snippet");
-    pre.innerHTML = hl(snippet, langFor(file));
-    box.append(pre);
-  }
-  const ta = document.createElement("textarea");
-  ta.rows = 2;
-  const where = startLine === endLine ? `line ${startLine}` : `lines ${startLine}–${endLine}`;
-  ta.placeholder = `Comment on ${where}…  (⌘/Ctrl+Enter comment · ⌘/Ctrl+Alt+Enter ask · Esc cancel)`;
-  const draftKey = composeDraftKey(file, side, startLine, endLine);
-  bindDraft(ta, draftKey);
-  // Carry the selected code into the comment so the agent sees the exact piece.
-  const withSnippet = (v: string) => (snippet ? `\`\`\`\n${snippet}\n\`\`\`\n\n${v}` : v);
-  const close = () => {
-    activeCompose = null;
-    box.remove();
-  };
-  const commentFn = () => {
-    const v = ta.value.trim();
-    if (v) send({ type: "comment", file, side, startLine, endLine, body: withSnippet(v) });
-    clearDraft(draftKey);
-    close();
-  };
-  const askFn = () => {
-    const v = ta.value.trim();
-    if (v) send({ type: "ask", file, side, startLine, endLine, body: withSnippet(v) });
-    clearDraft(draftKey);
-    close();
-  };
-  const commentBtn = el("button", undefined, "Comment");
-  const ask = el("button", "primary", "Ask agent");
-  const cancel = el("button", "ghost cancel", "Cancel");
-  commentBtn.onclick = commentFn;
-  ask.onclick = askFn;
-  cancel.onclick = close;
-  onSubmit(ta, commentFn, askFn);
-  ta.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") close();
-  });
-  const actions = el("div", "compose-actions");
-  actions.append(commentBtn, ask, cancel);
-  box.append(ta, actions);
-  // In split, anchor the composer after the line's grid row so it spans full
-  // width as its own grid item; in inline it just follows the clicked line.
-  const block = row.closest(".srow") ?? row;
-  block.after(box);
-  autoGrow(ta);
-  ta.focus();
-}
-
 // Splice hidden context (from the file's current content) into the gaps between
 // hunks, gated by expandedGaps: each gap starts as a clickable "expand" control
 // and reveals EXPAND_STEP more lines per click. Revealed lines are plain context,
@@ -633,16 +408,7 @@ function render(): void {
       root.append(failed);
     }
   }
-  // Reopen the composer the human had open before this re-render (e.g. an agent
-  // reply landed mid-typing) so their in-progress comment survives.
-  if (activeCompose) {
-    const { file, startLine, endLine, side, snippet } = activeCompose;
-    const anchor =
-      document.querySelector(
-        `[data-side="${side}"][data-file="${CSS.escape(file)}"][data-line="${endLine}"]`,
-      ) ?? document.querySelector(`[data-file="${CSS.escape(file)}"][data-line="${endLine}"]`);
-    if (anchor instanceof HTMLElement) openCompose(anchor, file, startLine, endLine, side, snippet);
-  }
+  reopenCompose();
   // Re-rendering threw away the highlights and changed how many threads are
   // open; both controls have to catch up before the human touches them again.
   refreshThreadNav();
@@ -813,12 +579,8 @@ document.addEventListener("mouseup", (e) => {
   b.style.top = `${e.clientY + window.scrollY + 8}px`;
   b.style.left = `${e.clientX + window.scrollX}px`;
   b.onclick = () => {
-    const anchor =
-      document.querySelector(
-        `[data-side="${side}"][data-file="${CSS.escape(file)}"][data-line="${endLine}"]`,
-      ) ?? document.querySelector(`[data-file="${CSS.escape(file)}"][data-line="${endLine}"]`);
     clearBubble();
-    if (anchor instanceof HTMLElement) openCompose(anchor, file, startLine, endLine, side, snippet);
+    openComposeAt(file, startLine, endLine, side, snippet);
   };
   bubble = b;
   document.body.append(b);
