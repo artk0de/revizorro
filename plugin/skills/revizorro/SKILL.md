@@ -215,6 +215,31 @@ while you work through them one by one:
 
 Write every answer first, then push once.
 
+### Diagrams in a body
+
+A `body` is markdown rendered with raw HTML disabled. Draw a diagram as Mermaid
+and nothing else, and always inside a fenced block tagged `mermaid`:
+
+````markdown
+```mermaid
+flowchart TD
+  A[SyncEntitiesAsync sets started_at] --> W[Worker lists one page]
+  W --> Q{NextPageToken}
+  Q -->|yes| W
+  Q -->|no| R[Archive rows not seen in this pass]
+```
+````
+
+- **Never send a diagram bare.** Without the fence markdown joins the lines into
+  one paragraph and the diagram turns into a run-on sentence.
+- **No HTML in labels.** `<br/>` and other tags print literally. Keep each label
+  to one short line; split a long node into two nodes instead.
+- Build the body in a script (`json.dump`) rather than shell-escaping the
+  backticks, so the fence reaches the JSON intact.
+- Check the body before pushing: it starts with ```` ```mermaid ```` and ends
+  with ```` ``` ````. A missing or unclosed fence also swallows any text after
+  it into the block.
+
 ## Rules
 
 - One event per call. Always re-enter the loop after acting — never assume the
