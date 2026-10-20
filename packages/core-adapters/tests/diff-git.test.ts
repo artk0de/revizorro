@@ -54,7 +54,7 @@ describe("GitDiffProvider", () => {
     expect(files[0].oldPath).toBe("a.ts");
   });
   it("diffs a renamed-and-edited file against its old path, not as a new file", async () => {
-    // git only calls it a rename above ~50% similarity, so the moved file has to be
+    // a rename is only paired above the similarity threshold, so the moved file has to be
     // big enough for one edited line to leave the rest recognisable.
     const lines = Array.from({ length: 20 }, (_, i) => `export const v${i} = ${i};`);
     const big = mkdtempSync(join(tmpdir(), "rvz-move-"));
@@ -75,6 +75,23 @@ describe("GitDiffProvider", () => {
     expect(moved.patch).toContain("-export const v3 = 3;");
     expect(moved.patch).toContain("+export const v3 = 333;");
     expect(moved.patch).not.toContain("+export const v7 = 7;"); // untouched lines aren't re-added
+  });
+  it("stagedOnly pairs a rename that rewrote half the file, below git's default 50%", async () => {
+    const lines = Array.from({ length: 20 }, (_, i) => `export const v${i} = ${i};`);
+    writeFileSync(join(repo, "old.ts"), `${lines.join("\n")}\n`);
+    git(repo, "add", "old.ts");
+    git(repo, "commit", "-qm", "add old");
+    git(repo, "mv", "old.ts", "new.ts");
+    const rewritten = lines.map((l, i) => (i < 10 ? `export const renamed${i} = "${i}";` : l));
+    writeFileSync(join(repo, "new.ts"), `${rewritten.join("\n")}\n`);
+    git(repo, "add", "new.ts");
+    expect(git(repo, "diff", "--cached", "--name-status", "-M", "HEAD")).not.toMatch(/^R/m);
+
+    const files = await new GitDiffProvider(repo, "main", { stagedOnly: true }).diff("wt");
+    expect(files.map((f) => f.path)).toEqual(["new.ts"]);
+    expect(files[0].oldPath).toBe("old.ts");
+    expect(files[0].patch).toContain("-export const v0 = 0;");
+    expect(files[0].patch).not.toContain("+export const v15 = 15;");
   });
   it("leaves oldPath unset for a plain modification", async () => {
     writeFileSync(join(repo, "a.ts"), "export const a = 2;\n");

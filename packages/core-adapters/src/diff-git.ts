@@ -7,6 +7,10 @@ import type { DiffProvider, DiffFile } from "@revizorro/core";
 
 const exec = promisify(execFile);
 
+// git's own default of 50% splits a moved file whose body was half rewritten into
+// a deletion plus an unrelated addition; 40% still keeps unrelated files apart.
+const RENAMES = "-M40%";
+
 export interface GitDiffOptions {
   /**
    * Review the index instead of the worktree: only what is committed on the branch
@@ -148,10 +152,10 @@ export class GitDiffProvider implements DiffProvider {
   ): Promise<{ rows: StatusRow[]; untracked: Set<string> }> {
     // --name-status -M keeps the rename pairs that --name-only collapses away, so a
     // moved file can be shown as `old → new` instead of a brand-new file.
-    const committed = staged ? "" : await this.git("diff", "--name-status", "-M", base, "HEAD");
+    const committed = staged ? "" : await this.git("diff", "--name-status", RENAMES, base, "HEAD");
     const working = staged
-      ? await this.git("diff", "--cached", "--name-status", "-M", "HEAD")
-      : await this.git("diff", "--name-status", "-M", "HEAD");
+      ? await this.git("diff", "--cached", "--name-status", RENAMES, "HEAD")
+      : await this.git("diff", "--name-status", RENAMES, "HEAD");
     // Untracked files are worktree-only by definition — `git add` puts them in the
     // index, where the --cached listing above already picks them up.
     const untrackedOut = staged ? "" : await this.git("ls-files", "--others", "--exclude-standard");
@@ -229,7 +233,7 @@ export class GitDiffProvider implements DiffProvider {
     // pathspec; a single path would render the move as a full-content addition.
     const pathspec = oldPath ? [oldPath, path] : [path];
     return staged
-      ? this.gitAllowFail("diff", "--cached", "-M", base, "--", ...pathspec)
-      : this.gitAllowFail("diff", "-M", base, "--", ...pathspec);
+      ? this.gitAllowFail("diff", "--cached", RENAMES, base, "--", ...pathspec)
+      : this.gitAllowFail("diff", RENAMES, base, "--", ...pathspec);
   }
 }
