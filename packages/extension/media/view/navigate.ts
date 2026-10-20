@@ -1,3 +1,5 @@
+import { setOpen } from "./fold.js";
+
 /**
  * Moving the reader around a long diff: to the next open thread, to a search
  * hit. Every jump has the same three obligations — open whatever is collapsed
@@ -123,17 +125,13 @@ export function jumpTo(target: HTMLElement): void {
   // A viewed or oversized file renders collapsed, and a resolved thread renders
   // folded. Landing on either shows the human a closed box and reads as a no-op.
   const diff = card?.querySelector<HTMLElement>(".diff");
-  if (diff?.style.display === "none") {
-    diff.style.display = "block";
-    const caret = card?.querySelector<HTMLElement>(".caret");
-    if (caret) caret.textContent = "▾";
+  if (card?.dataset.path && diff?.style.display === "none") {
+    setOpen("file", card.dataset.path, diff, card.querySelector(".caret"), true);
   }
-  if (target.classList.contains("thread")) {
+  if (target.classList.contains("thread") && target.dataset.id) {
     const content = target.querySelector<HTMLElement>(".thread-content");
     if (content?.style.display === "none") {
-      content.style.display = "block";
-      const caret = target.querySelector<HTMLElement>(".tcaret");
-      if (caret) caret.textContent = "▾";
+      setOpen("thread", target.dataset.id, content, target.querySelector(".tcaret"), true);
     }
   }
   const top = target.getBoundingClientRect().top + (window.scrollY || 0) - chromeHeight(card);

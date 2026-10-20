@@ -2,6 +2,7 @@ import { el } from "./dom.js";
 import { send } from "./bridge.js";
 import { LOCKFILE } from "./patch.js";
 import { renderDiffBody, type DiffFile } from "./diff-body.js";
+import { forgetFold, isOpen, setOpen } from "./fold.js";
 
 /**
  * One file's card in the review: a header that names it (and what it was
@@ -37,7 +38,7 @@ function renamePath(f: CardFile): { label: HTMLElement; tag: string } {
 export function renderFile(f: CardFile, mode: string): HTMLElement {
   const lineCount = f.patch ? f.patch.split("\n").length : 0;
   const big = LOCKFILE.test(f.path) || lineCount > 400;
-  const collapsed = f.viewed || big;
+  const collapsed = !isOpen("file", f.path, !(f.viewed || big));
   const wrap = el("div", `file${f.viewed ? " viewed" : ""}`);
   wrap.dataset.path = f.path;
   const head = el("div", "file-head");
@@ -55,6 +56,7 @@ export function renderFile(f: CardFile, mode: string): HTMLElement {
   cbox.checked = f.viewed;
   cbox.onclick = (e) => {
     e.stopPropagation();
+    forgetFold("file", f.path);
     send({ type: "setViewed", file: f.path, viewed: cbox.checked });
   };
   chk.append(cbox, document.createTextNode(" viewed"));
@@ -63,8 +65,7 @@ export function renderFile(f: CardFile, mode: string): HTMLElement {
   const diff = el("div", "diff");
   diff.style.display = collapsed ? "none" : "block";
   head.onclick = () => {
-    diff.style.display = diff.style.display === "none" ? "block" : "none";
-    caret.textContent = diff.style.display === "none" ? "▸" : "▾";
+    setOpen("file", f.path, diff, caret, diff.style.display === "none");
   };
   if (f.binary) diff.append(el("div", "binary", "(binary file — no textual diff)"));
   else {

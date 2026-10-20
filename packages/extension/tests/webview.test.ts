@@ -145,3 +145,55 @@ describe("webview render", () => {
     );
   });
 });
+
+// Every push from the extension rebuilds the form, and a card used to re-derive its
+// fold from `viewed` / `resolved` alone — so a file opened by hand to comment on
+// snapped shut whenever the agent or the host sent anything.
+describe("folds survive a re-render", () => {
+  const diffOf = (path: string): HTMLElement =>
+    cards()
+      .find((c) => c.dataset.path === path)!
+      .querySelector<HTMLElement>(".diff")!;
+  const resolvedThread = (id: string) => ({
+    id,
+    line: 2,
+    side: "new",
+    resolved: true,
+    pending: false,
+    messages: [{ author: "human", body: "done" }],
+  });
+
+  it("keeps a viewed file open after the human opened it", () => {
+    send([fileView("seen.ts", { viewed: true })]);
+    expect(diffOf("seen.ts").style.display).toBe("none");
+    cards()[0].querySelector<HTMLElement>(".file-head")!.click();
+    send([fileView("seen.ts", { viewed: true })], { agentWaiting: true });
+    expect(diffOf("seen.ts").style.display).toBe("block");
+  });
+
+  it("keeps a viewed file open after a jump from the tree", () => {
+    send([fileView("jumped.ts", { viewed: true })]);
+    treeFiles()[0].click();
+    send([fileView("jumped.ts", { viewed: true })]);
+    expect(diffOf("jumped.ts").style.display).toBe("block");
+  });
+
+  it("still folds a file the human has just ticked as viewed", () => {
+    send([fileView("tick.ts")]);
+    cards()[0].querySelector<HTMLElement>(".file-head")!.click();
+    cards()[0].querySelector<HTMLElement>(".file-head")!.click();
+    cards()[0].querySelector<HTMLInputElement>(".viewed-chk input")!.click();
+    send([fileView("tick.ts", { viewed: true })]);
+    expect(diffOf("tick.ts").style.display).toBe("none");
+  });
+
+  it("keeps a resolved thread open after the human opened it", () => {
+    send([fileView("t.ts", { threads: [resolvedThread("r1")] })]);
+    const content = () =>
+      document.querySelector<HTMLElement>('.thread[data-id="r1"] .thread-content')!;
+    expect(content().style.display).toBe("none");
+    document.querySelector<HTMLElement>('.thread[data-id="r1"] .thread-bar')!.click();
+    send([fileView("t.ts", { threads: [resolvedThread("r1")] })]);
+    expect(content().style.display).toBe("block");
+  });
+});

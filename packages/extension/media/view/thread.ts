@@ -2,6 +2,7 @@ import { composeDraftKey, replyDraftKey, editDraftKey } from "@revizorro/core";
 import { langFor, hl, renderMarkdown } from "./highlight.js";
 import { el, onSubmit, autoGrow } from "./dom.js";
 import { send } from "./bridge.js";
+import { forgetFold, isOpen, setOpen } from "./fold.js";
 import { bindDraft, clearDraft, markEditorOpen, markEditorClosed, isEditorOpen } from "./drafts.js";
 
 /**
@@ -62,6 +63,7 @@ function threadBar(t: ThreadView): { bar: HTMLElement; caret: HTMLElement } {
   const resolveBtn = el("button", "ghost", t.resolved ? "Unresolve" : "Resolve");
   resolveBtn.onclick = (e) => {
     e.stopPropagation();
+    forgetFold("thread", t.id);
     send({ type: "resolve", threadId: t.id, resolved: !t.resolved });
   };
   bar.append(resolveBtn);
@@ -193,11 +195,11 @@ export function renderThread(t: ThreadView): HTMLElement {
   box.append(bar);
 
   const content = el("div", "thread-content");
-  content.style.display = t.resolved ? "none" : "block";
+  const open = isOpen("thread", t.id, !t.resolved);
+  content.style.display = open ? "block" : "none";
+  caret.textContent = open ? "▾" : "▸";
   bar.onclick = () => {
-    const open = content.style.display === "none";
-    content.style.display = open ? "block" : "none";
-    caret.textContent = open ? "▾" : "▸";
+    setOpen("thread", t.id, content, caret, content.style.display === "none");
   };
 
   // Edit your own posts in an unresolved thread: a pencil on each human message,

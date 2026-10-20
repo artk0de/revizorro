@@ -1,6 +1,7 @@
 import { buildFileTree, fileReviewState, type FileTreeNode } from "@revizorro/core";
 import { el } from "./dom.js";
 import { diffStat } from "./patch.js";
+import { setOpen } from "./fold.js";
 
 /** What the navigator needs to know about one file. */
 export interface TreeFile {
@@ -33,9 +34,7 @@ export function revealFile(path: string): void {
   // like nothing happened, so open it on the way in.
   const diff = card.querySelector<HTMLElement>(".diff");
   if (diff?.style.display === "none") {
-    diff.style.display = "block";
-    const caret = card.querySelector<HTMLElement>(".caret");
-    if (caret) caret.textContent = "▾";
+    setOpen("file", path, diff, card.querySelector(".caret"), true);
   }
   // Optional: not every host implements smooth scrolling, and failing to scroll
   // must not cost the human the expansion above.
